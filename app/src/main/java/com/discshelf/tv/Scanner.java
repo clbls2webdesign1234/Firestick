@@ -104,8 +104,7 @@ final class Scanner {
 
     private void scanLocalAndWeb() {
         List<Source> sources = Store.sources(ctx);
-        boolean canRead = ctx.checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE)
-                == PackageManager.PERMISSION_GRANTED;
+        boolean canRead = Util.canReadStorage(ctx);
 
         if (Prefs.scanUsb(ctx)) {
             if (canRead) {

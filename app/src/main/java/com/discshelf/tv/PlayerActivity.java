@@ -11,6 +11,7 @@ import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -1524,6 +1525,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
     private long[] sinkAbilities() {
         long mask = 0;
         long channels = 2;
+        if (Build.VERSION.SDK_INT < 23) return new long[]{mask, channels};
         try {
             AudioManager am = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
             for (AudioDeviceInfo d : am.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
@@ -1558,7 +1560,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
                 float f = v.frameRateNum / (float) v.frameRateDen;
                 if (fps == 0 || t.id == selected) fps = f;
             }
-            if (fps < 20 || fps > 121) return;
+            if (fps < 20 || fps > 121 || Build.VERSION.SDK_INT < 23) return;
             try {
                 Display display = getWindowManager().getDefaultDisplay();
                 Display.Mode current = display.getMode();

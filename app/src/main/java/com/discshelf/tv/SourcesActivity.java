@@ -80,7 +80,7 @@ public class SourcesActivity extends Activity {
         TextView caption = new TextView(this);
         caption.setText(label);
         caption.setTextSize(13);
-        caption.setTextColor(getColor(R.color.text_dim));
+        caption.setTextColor(getResources().getColor(R.color.text_dim));
         caption.setPadding(0, Util.dp(this, 10), 0, 0);
         form.addView(caption);
         EditText e = new EditText(this);

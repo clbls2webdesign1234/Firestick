@@ -76,6 +76,13 @@ final class Util {
         return "VIDEO_TS".equalsIgnoreCase(name) || "BDMV".equalsIgnoreCase(name);
     }
 
+    /** Fire OS 5 (Android 5.1) grants storage access at install, so there is nothing to ask. */
+    static boolean canReadStorage(Context c) {
+        return android.os.Build.VERSION.SDK_INT < 23
+                || c.checkSelfPermission(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
     static int dp(Context c, float v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
     }

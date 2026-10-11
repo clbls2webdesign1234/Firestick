@@ -117,7 +117,7 @@ public class MainActivity extends Activity implements Scanner.Listener {
     }
 
     private boolean needsStoragePermission() {
-        if (checkSelfPermission(Manifest.permission.READ_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) return false;
+        if (Util.canReadStorage(this)) return false;
         if (Prefs.scanUsb(this)) return true;
         for (Source s : Store.sources(this)) if (Source.LOCAL.equals(s.type)) return true;
         return false;
