@@ -14,6 +14,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.AdapterView;
 import android.widget.BaseAdapter;
+import android.widget.Button;
 import android.widget.GridView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -147,6 +148,27 @@ public class MainActivity extends Activity implements Scanner.Listener {
         sb.append(found.size()).append(found.size() == 1 ? " disc" : " discs");
         for (String n : notes) sb.append("   ·   ").append(n);
         status.setText(sb.toString());
+        if (found.isEmpty()) explainEmpty(notes);
+    }
+
+    /** The status line is one short line, so an empty shelf spells out what each source reported. */
+    private void explainEmpty(List<String> notes) {
+        TextView title = (TextView) findViewById(R.id.empty_title);
+        TextView detail = (TextView) findViewById(R.id.empty_detail);
+        Button add = (Button) findViewById(R.id.btn_add_source);
+        if (Store.sources(this).isEmpty() && notes.isEmpty()) {
+            title.setText("No discs on the shelf yet");
+            detail.setText("Plug in a USB drive holding .iso files, or add a network share or web address where your DVD and Blu-ray images are kept.");
+            add.setText("Add a source");
+            return;
+        }
+        title.setText("No discs found");
+        StringBuilder sb = new StringBuilder();
+        for (String n : notes) sb.append(sb.length() == 0 ? "" : "\n").append(n);
+        if (sb.length() == 0) sb.append("Your sources were searched but held no .iso files or disc folders.");
+        sb.append("\n\nCheck the address, user name and password under Sources, then press Rescan.");
+        detail.setText(sb.toString());
+        add.setText("Check sources");
     }
 
     private void show(List<Disc> list) {
