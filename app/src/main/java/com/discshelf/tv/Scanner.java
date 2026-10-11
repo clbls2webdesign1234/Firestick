@@ -9,6 +9,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Base64;
 
+import org.videolan.libvlc.Dialog;
 import org.videolan.libvlc.LibVLC;
 import org.videolan.libvlc.interfaces.IMedia;
 import org.videolan.libvlc.util.MediaBrowser;
@@ -60,6 +61,8 @@ final class Scanner {
     private final List<String> notes = Collections.synchronizedList(new ArrayList<String>());
     private volatile boolean cancelled;
     private LibVLC vlc;
+    /** The share being walked, so a login request from the engine can be answered. */
+    private ShareWalk walking;
 
     private Scanner(Context ctx, Listener listener) {
         this.ctx = ctx.getApplicationContext();
@@ -322,6 +325,7 @@ final class Scanner {
         }
         try {
             vlc = new LibVLC(ctx, new ArrayList<String>());
+            Dialog.setCallbacks(vlc, dialogs);
         } catch (Throwable t) {
             notes.add("Network shares: the player engine could not start");
             finish();
@@ -333,6 +337,10 @@ final class Scanner {
     private void nextShare(final List<Source> shares, final int index) {
         if (cancelled || index >= shares.size()) {
             if (vlc != null) {
+                try {
+                    Dialog.setCallbacks(vlc, null);
+                } catch (Throwable ignored) {
+                }
                 vlc.release();
                 vlc = null;
             }
@@ -353,12 +361,59 @@ final class Scanner {
             return;
         }
         listener.onProgress("Scanning " + s.displayName() + "…");
-        new ShareWalk(s, root, then).next();
+        walking = new ShareWalk(s, root, then);
+        walking.next();
     }
+
+    /**
+     * The engine asks for a login, or reports an error, through dialogs. Nobody sees
+     * them during a scan, so answer a login with the saved one (once), and turn
+     * everything else into a note. Unanswered, the browse would hang until the timeout.
+     */
+    private final Dialog.Callbacks dialogs = new Dialog.Callbacks() {
+        @Override
+        public void onDisplay(Dialog.ErrorMessage dialog) {
+            ShareWalk w = walking;
+            if (w != null && dialog.getText() != null) w.problem(dialog.getText());
+        }
+
+        @Override
+        public void onDisplay(Dialog.LoginDialog dialog) {
+            ShareWalk w = walking;
+            if (w != null && !w.triedLogin && !Util.empty(w.source.user)) {
+                w.triedLogin = true;
+                dialog.postLogin(w.source.user.trim(), w.source.pass, false);
+                return;
+            }
+            dialog.dismiss();
+            if (w != null) {
+                w.problem(Util.empty(w.source.user)
+                        ? "the share asks for a user name and password. Add them under Sources"
+                        : "the share refused the user name or password");
+            }
+        }
+
+        @Override
+        public void onDisplay(Dialog.QuestionDialog dialog) {
+            dialog.dismiss();
+        }
+
+        @Override
+        public void onDisplay(Dialog.ProgressDialog dialog) {
+        }
+
+        @Override
+        public void onCanceled(Dialog dialog) {
+        }
+
+        @Override
+        public void onProgressUpdate(Dialog.ProgressDialog dialog) {
+        }
+    };
 
     /** Walks one share folder by folder. */
     private final class ShareWalk implements MediaBrowser.EventListener {
-        private final Source source;
+        final Source source;
         private final Runnable then;
         private final ArrayDeque<String[]> queue = new ArrayDeque<>();
         private final Set<String> seen = new HashSet<>();
@@ -366,15 +421,29 @@ final class Scanner {
         private int depth;
         private int count;
         private int folderDiscs;
+        boolean triedLogin;
+        private boolean noted;
         private boolean finished;
 
         private final Runnable timeout = new Runnable() {
             @Override
             public void run() {
-                if (count == 0) notes.add(source.displayName() + ": no answer from the share");
+                if (count == 0 && !noted) {
+                    notes.add(source.displayName() + ": no answer from the share. Check the address includes the shared folder"
+                            + " (for example 192.168.1.20/Films) and that file sharing (SMB) is turned on");
+                    noted = true;
+                }
                 done();
             }
         };
+
+        /** A login or error the engine reported: note it once and stop this share. */
+        void problem(String text) {
+            if (finished) return;
+            if (!noted) notes.add(source.displayName() + ": " + text);
+            noted = true;
+            done();
+        }
 
         ShareWalk(Source source, String root, Runnable then) {
             this.source = source;
@@ -435,7 +504,8 @@ final class Scanner {
                         + " (VIDEO_TS or BDMV) skipped. Over a network share discs need to be ISO files;"
                         + " folders play from a USB drive.");
             }
-            if (count == 0 && !cancelled) {
+            if (walking == this) walking = null;
+            if (count == 0 && !cancelled && !this.noted) {
                 boolean noted = false;
                 for (String n : notes) if (n.startsWith(source.displayName() + ":")) noted = true;
                 if (!noted) notes.add(source.displayName() + ": no ISO files found. Check the address and login");
