@@ -14,6 +14,9 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ListView;
 import android.widget.TextView;
+import android.widget.ScrollView;
+import android.view.inputmethod.EditorInfo;
+import android.view.KeyEvent;
 
 import java.util.List;
 
@@ -89,6 +92,7 @@ public class SourcesActivity extends Activity {
         e.setText(value);
         e.setHint(hintText);
         e.setTextSize(17);
+        e.setImeOptions(EditorInfo.IME_ACTION_NEXT | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
         form.addView(e, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
         return e;
@@ -127,9 +131,16 @@ public class SourcesActivity extends Activity {
                     InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
         }
 
-        new AlertDialog.Builder(this)
+        /* The TV keyboard covers the dialog buttons, so the form scrolls and the
+           keyboard's Done key on the last field saves. */
+        ScrollView scroll = new ScrollView(this);
+        scroll.addView(form);
+        final EditText last = pass != null ? pass : name;
+        last.setImeOptions(EditorInfo.IME_ACTION_DONE | EditorInfo.IME_FLAG_NO_EXTRACT_UI);
+
+        final AlertDialog dialog = new AlertDialog.Builder(this)
                 .setTitle(isNew ? "New source: " + s.typeLabel().toLowerCase() : "Edit " + s.typeLabel().toLowerCase())
-                .setView(form)
+                .setView(scroll)
                 .setPositiveButton("Save", new DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(DialogInterface dialog, int which) {
@@ -145,7 +156,20 @@ public class SourcesActivity extends Activity {
                     }
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
+                .create();
+        last.setOnEditorActionListener(new TextView.OnEditorActionListener() {
+            @Override
+            public boolean onEditorAction(TextView v, int actionId, KeyEvent event) {
+                if (actionId != EditorInfo.IME_ACTION_DONE) return false;
+                if (address.getText().toString().trim().isEmpty()) {
+                    address.requestFocus();
+                    return true;
+                }
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+                return true;
+            }
+        });
+        dialog.show();
         address.requestFocus();
     }
 
