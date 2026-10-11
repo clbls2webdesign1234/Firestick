@@ -1,0 +1,60 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Each GitHub build gets a higher number, so a new APK installs over the old one.
+def buildNumber = (System.getenv('GITHUB_RUN_NUMBER') ?: '1') as Integer
+
+android {
+    namespace 'com.discshelf.tv'
+    compileSdk 36
+
+    defaultConfig {
+        applicationId 'com.discshelf.tv'
+        minSdk 23
+        // 29 keeps plain file access to USB drives working on Fire OS 8.
+        targetSdk 29
+        versionCode buildNumber
+        versionName "1.0.${buildNumber}"
+        ndk {
+            // Fire TV devices are ARM; leaving out x86 halves the APK size.
+            abiFilters 'armeabi-v7a', 'arm64-v8a'
+        }
+    }
+
+    signingConfigs {
+        release {
+            // A fixed key, so every build can update the one already on the stick.
+            storeFile rootProject.file('signing/discshelf.jks')
+            storeType 'pkcs12'
+            storePassword 'discshelf'
+            keyAlias 'discshelf'
+            keyPassword 'discshelf'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+        debug {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    lint {
+        checkReleaseBuilds false
+        abortOnError false
+    }
+}
+
+dependencies {
+    // The VLC playback engine: reads DVD and Blu-ray images, menus included.
+    implementation 'org.videolan.android:libvlc-all:3.6.2'
+}

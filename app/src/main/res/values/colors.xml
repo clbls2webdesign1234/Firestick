@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#FF0D1014</color>
+    <color name="surface">#FF171C23</color>
+    <color name="surface_high">#FF232B36</color>
+    <color name="text">#FFF2F4F7</color>
+    <color name="text_dim">#FF9AA4B2</color>
+    <color name="accent">#FFFFB224</color>
+    <color name="on_accent">#FF14110A</color>
+    <color name="focus_fill">#33FFB224</color>
+    <color name="panel">#F2141920</color>
+    <color name="pill">#D9141920</color>
+    <color name="button_idle">#33FFFFFF</color>
+</resources>
