@@ -44,6 +44,8 @@ import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.geom.RoundRectangle2D;
+import java.awt.image.BufferedImage;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
@@ -56,6 +58,8 @@ final class MainWindow extends JFrame {
             {new Color(0x214540), new Color(0x152B28)}, {new Color(0x4A3324), new Color(0x2B1F17)},
             {new Color(0x46283A), new Color(0x291923)}, {new Color(0x2D3F2A), new Color(0x1B2619)}};
     private static final Color ACCENT = new Color(0x4FA3FF);
+    /** Poster-shaped tiles, so covers show whole. */
+    private static final int TILE_W = 186, TILE_H = 286;
 
     private final Library library;
     private final DefaultListModel<Disc> model = new DefaultListModel<>();
@@ -68,10 +72,12 @@ final class MainWindow extends JFrame {
     private final JTextArea emptyDetail = new JTextArea();
     private List<Disc> all = new ArrayList<>();
     private SwingWorker<Library.Result, String> scanning;
+    private final Art art;
 
     MainWindow(Library library) {
         super("Disc Shelf");
         this.library = library;
+        this.art = new Art(library.dir(), grid::repaint);
         setDefaultCloseOperation(EXIT_ON_CLOSE);
         setMinimumSize(new Dimension(900, 600));
         setSize(1300, 820);
@@ -83,10 +89,11 @@ final class MainWindow extends JFrame {
 
         grid.setLayoutOrientation(JList.HORIZONTAL_WRAP);
         grid.setVisibleRowCount(-1);
-        grid.setFixedCellWidth(236);
-        grid.setFixedCellHeight(170);
+        grid.setFixedCellWidth(TILE_W);
+        grid.setFixedCellHeight(TILE_H);
         grid.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
         grid.setCellRenderer(new TileRenderer());
+        javax.swing.ToolTipManager.sharedInstance().registerComponent(grid);
         grid.setBackground(getContentPane().getBackground());
         grid.setBorder(BorderFactory.createEmptyBorder(16, 28, 16, 28));
         grid.addMouseListener(new MouseAdapter() {
@@ -249,6 +256,7 @@ final class MainWindow extends JFrame {
 
     private void rescan() {
         if (scanning != null) return;
+        art.retryMissing();
         status.setText("Looking for discs…");
         scanning = new SwingWorker<>() {
             @Override
@@ -325,9 +333,16 @@ final class MainWindow extends JFrame {
                 }
             }
         });
+        JMenuItem other = new JMenuItem("Try a different cover");
+        other.addActionListener(e -> art.next(d));
+        JMenuItem none = new JMenuItem("Show no cover");
+        none.addActionListener(e -> art.hide(d));
         m.add(play);
         m.add(fresh);
         m.add(forget);
+        m.addSeparator();
+        m.add(other);
+        m.add(none);
         m.addSeparator();
         m.add(show);
         return m;
@@ -406,6 +421,7 @@ final class MainWindow extends JFrame {
         sound.setSelectedItem(Settings.sound());
         JCheckBox menus = new JCheckBox("Start discs on their own menu", Settings.menus());
         JCheckBox full = new JCheckBox("Play full screen", Settings.startFullScreen());
+        JCheckBox covers = new JCheckBox("Find cover art online (Apple's iTunes film and TV catalogue)", Art.online());
         JTextField audio = new JTextField(Settings.audioLang(), 8);
         JTextField subs = new JTextField(Settings.subLang(), 8);
 
@@ -420,6 +436,10 @@ final class MainWindow extends JFrame {
         p.add(Box.createVerticalStrut(12));
         p.add(left(menus));
         p.add(left(full));
+        p.add(left(covers));
+        JLabel coverHint = new JLabel("A picture saved beside a disc, such as The Matrix.jpg next to The Matrix.iso, is used first.");
+        coverHint.setForeground(Color.GRAY);
+        p.add(left(coverHint));
         p.add(Box.createVerticalStrut(12));
         JPanel langs = new JPanel(new FlowLayout(FlowLayout.LEFT, 6, 0));
         langs.add(new JLabel("Preferred soundtrack language"));
@@ -436,6 +456,11 @@ final class MainWindow extends JFrame {
         Settings.setSound((Settings.Sound) sound.getSelectedItem());
         Settings.setMenus(menus.isSelected());
         Settings.setStartFullScreen(full.isSelected());
+        if (covers.isSelected() != Art.online()) {
+            Art.setOnline(covers.isSelected());
+            art.retryMissing();
+            grid.repaint();
+        }
         Settings.setAudioLang(audio.getText());
         Settings.setSubLang(subs.getText());
     }
@@ -453,7 +478,7 @@ final class MainWindow extends JFrame {
         private boolean selected;
 
         TileRenderer() {
-            setPreferredSize(new Dimension(236, 170));
+            setPreferredSize(new Dimension(TILE_W, TILE_H));
         }
 
         @Override
@@ -462,6 +487,7 @@ final class MainWindow extends JFrame {
             this.disc = value;
             this.index = index;
             this.selected = isSelected;
+            setToolTipText(value.title);
             return this;
         }
 
@@ -474,6 +500,20 @@ final class MainWindow extends JFrame {
             Color[] c = TILE_COLOURS[Math.abs(disc.title.hashCode()) % TILE_COLOURS.length];
             g.setPaint(new GradientPaint(x, y, c[0], x, y + h, c[1]));
             g.fillRoundRect(x, y, w, h, 16, 16);
+
+            BufferedImage cover = art.get(disc);
+            if (cover != null) {
+                /* Fill the tile, trimming whichever sides overflow, inside the rounded corners. */
+                java.awt.Shape oldClip = g.getClip();
+                g.clip(new RoundRectangle2D.Float(x, y, w, h, 16, 16));
+                double scale = Math.max((double) w / cover.getWidth(), (double) h / cover.getHeight());
+                int iw = (int) Math.ceil(cover.getWidth() * scale), ih = (int) Math.ceil(cover.getHeight() * scale);
+                g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_BILINEAR);
+                g.drawImage(cover, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih, null);
+                g.setPaint(new GradientPaint(x, y + h - 60, new Color(0, 0, 0, 0), x, y + h, new Color(0, 0, 0, 220)));
+                g.fillRect(x, y + h - 60, w, 60);
+                g.setClip(oldClip);
+            }
             if (selected) {
                 g.setColor(ACCENT);
                 g.setStroke(new java.awt.BasicStroke(3f));
@@ -483,14 +523,16 @@ final class MainWindow extends JFrame {
             g.setFont(getFont().deriveFont(Font.BOLD, 11f));
             String badge = disc.badge();
             int bw = g.getFontMetrics().stringWidth(badge) + 12;
-            g.setColor(new Color(255, 255, 255, 40));
+            g.setColor(new Color(0, 0, 0, 150));
             g.fillRoundRect(x + 12, y + 12, bw, 20, 10, 10);
             g.setColor(new Color(230, 230, 230));
             g.drawString(badge, x + 18, y + 26);
 
-            g.setFont(getFont().deriveFont(Font.BOLD, 16f));
-            g.setColor(Color.WHITE);
-            drawWrapped(g, disc.title, x + 14, y + 62, w - 28, 3);
+            if (cover == null) {
+                g.setFont(getFont().deriveFont(Font.BOLD, 16f));
+                g.setColor(Color.WHITE);
+                drawWrapped(g, disc.title, x + 14, y + 62, w - 28, 5);
+            }
 
             g.setFont(getFont().deriveFont(12f));
             g.setColor(new Color(200, 200, 200));

@@ -26,6 +26,19 @@ Nothing needs installing: the engine and Java come inside the folder.
 enter the user name and password, and tick **Remember my credentials**. Unlike on the
 Fire TV, disc folders on a share should play with their menus too.
 
+## Cover art
+
+Each tile shows the disc's cover when one can be found:
+
+1. A picture saved beside the disc, on any drive or share: `The Matrix.jpg` next to
+   `The Matrix.iso`, or `cover.jpg`, `folder.jpg`, `poster.jpg` or `front.jpg` inside a disc folder.
+2. Otherwise the title is looked up in Apple's iTunes film and TV catalogue (no account needed).
+   Covers are saved in `%APPDATA%\DiscShelf\art`, so each is fetched once. Names with a year
+   (`The Matrix 1999`) or a season (`Friends Season 3 Disc 2`) match best.
+
+Right-click a tile for **Try a different cover** or **Show no cover**. Hover over a tile to see
+its name. Online lookup can be turned off under **Settings**.
+
 ## While a disc plays
 
 | Key | Does |

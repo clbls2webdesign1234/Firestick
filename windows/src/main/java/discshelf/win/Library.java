@@ -53,6 +53,11 @@ final class Library {
         load();
     }
 
+    /** %APPDATA%\DiscShelf, where the library and saved covers are kept. */
+    File dir() {
+        return dir;
+    }
+
     // ------------------------------------------------------------ storage
 
     private File file() {
