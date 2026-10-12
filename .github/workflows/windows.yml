@@ -1,0 +1,72 @@
+name: Build Windows app
+
+# Builds Disc Shelf for Windows 11 when anything in windows/ changes, or when you
+# press "Run workflow" on the Actions tab. The result is a zip on the "windows" release.
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'windows/**'
+      - '.github/workflows/windows.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VLC_VERSION: '3.0.21'
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Build the app
+        working-directory: windows
+        run: mvn -B -q package
+
+      - name: Get the VLC engine
+        shell: pwsh
+        run: |
+          $zip = "vlc.zip"
+          Invoke-WebRequest "https://download.videolan.org/pub/videolan/vlc/$env:VLC_VERSION/win64/vlc-$env:VLC_VERSION-win64.zip" -OutFile $zip
+          Expand-Archive $zip -DestinationPath vlc-unpacked
+          New-Item -ItemType Directory stage | Out-Null
+          Copy-Item windows/target/DiscShelf.jar stage/
+          Move-Item "vlc-unpacked/vlc-$env:VLC_VERSION" stage/vlc
+
+      - name: Package with its own Java
+        shell: pwsh
+        run: |
+          jpackage --type app-image --name DiscShelf --app-version 1.0.${{ github.run_number }} `
+            --vendor "Disc Shelf" --input stage --main-jar DiscShelf.jar --main-class discshelf.win.App `
+            --java-options '-Djna.library.path=$APPDIR\vlc' --java-options '-Dsun.java2d.d3d=true' `
+            --dest dist
+          Copy-Item windows/README.md dist/DiscShelf/README.md
+          Compress-Archive dist/DiscShelf DiscShelf-Windows.zip
+
+      - name: Keep the zip with this run
+        uses: actions/upload-artifact@v5
+        with:
+          name: DiscShelf-Windows
+          path: DiscShelf-Windows.zip
+
+      - name: Publish it on the "windows" release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Replace last build's release; on the first build there is none to delete.
+          gh release delete windows --yes --cleanup-tag 2>$null
+          $global:LASTEXITCODE = 0
+          gh release create windows DiscShelf-Windows.zip --target $env:GITHUB_SHA --latest=false `
+            --title "Disc Shelf for Windows (build ${{ github.run_number }})" `
+            --notes "Unzip, then run DiscShelf.exe inside the DiscShelf folder. Windows 10 and 11, 64-bit."
