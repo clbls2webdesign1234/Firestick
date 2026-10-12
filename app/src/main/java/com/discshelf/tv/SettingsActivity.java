@@ -174,7 +174,7 @@ public class SettingsActivity extends Activity {
             boolean now = prefs.getBoolean(it.key, Boolean.parseBoolean(it.fallback));
             prefs.edit().putBoolean(it.key, !now).apply();
             if (Prefs.SCAN_USB.equals(it.key)) Store.markDirty(this);
-            if (Prefs.ART_ONLINE.equals(it.key)) Art.retryMissing();
+            if (Prefs.ART_ONLINE.equals(it.key)) Art.retryMissing(this);
             adapter.notifyDataSetChanged();
             return;
         }

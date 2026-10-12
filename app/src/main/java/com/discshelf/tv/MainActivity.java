@@ -72,7 +72,7 @@ public class MainActivity extends Activity implements Scanner.Listener, Art.List
             @Override
             public void onClick(View v) {
                 explainAfterScan = true;
-                Art.retryMissing();
+                Art.retryMissing(MainActivity.this);
                 rescan();
             }
         });
@@ -129,6 +129,10 @@ public class MainActivity extends Activity implements Scanner.Listener, Art.List
     @Override
     public void onArt() {
         adapter.notifyDataSetChanged();
+        /* Say why covers are missing, so the cause can be fixed. */
+        if (scanner == null && Art.problem != null && Art.found == 0) {
+            status.setText("Covers: " + Art.problem);
+        }
     }
 
     private boolean needsStoragePermission() {

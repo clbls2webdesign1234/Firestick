@@ -61,6 +61,9 @@ final class Art {
             };
     private static Listener listener;
     private static long lastLookup;
+    /** Why the last cover could not be fetched, shown on the shelf; null once one arrives. */
+    static volatile String problem;
+    static volatile int found;
 
     static void setListener(Listener l) {
         listener = l;
@@ -79,21 +82,27 @@ final class Art {
         worker.execute(new Runnable() {
             @Override
             public void run() {
-                Bitmap found = null;
+                Bitmap got = null;
                 try {
-                    found = load(app, disc);
-                } catch (Throwable ignored) {
+                    got = load(app, disc);
+                } catch (Throwable t) {
+                    problem = describe(t);
                 }
-                final Bitmap result = found;
+                final Bitmap result = got;
                 main.post(new Runnable() {
                     @Override
                     public void run() {
                         synchronized (pending) {
                             pending.remove(disc.id);
                         }
-                        if (result != null) memory.put(disc.id, result);
-                        else failed.add(disc.id);
-                        if (result != null && listener != null) listener.onArt();
+                        if (result != null) {
+                            memory.put(disc.id, result);
+                            found++;
+                            problem = null;
+                        } else {
+                            failed.add(disc.id);
+                        }
+                        if (listener != null) listener.onArt();
                     }
                 });
             }
@@ -115,9 +124,22 @@ final class Art {
         forget(c, d);
     }
 
-    /** Called on Rescan, so pictures added beside the discs show up. */
-    static void retryMissing() {
+    /** Called on Rescan, so pictures added beside the discs show up and titles not found are searched again. */
+    static void retryMissing(Context c) {
         failed.clear();
+        problem = null;
+        SharedPreferences sp = sp(c);
+        SharedPreferences.Editor e = sp.edit();
+        for (String k : sp.getAll().keySet()) if (k.startsWith("miss_")) e.remove(k);
+        e.apply();
+    }
+
+    private static String describe(Throwable t) {
+        if (t instanceof java.net.UnknownHostException) return "the Fire TV couldn't find Apple's catalogue on the internet";
+        if (t instanceof javax.net.ssl.SSLException) return "a secure connection to Apple's catalogue failed (" + t.getMessage() + ")";
+        if (t instanceof java.net.SocketTimeoutException) return "Apple's catalogue didn't answer in time";
+        String m = t.getMessage();
+        return t.getClass().getSimpleName() + (m == null ? "" : ": " + m);
     }
 
     private static void forget(Context c, Disc d) {
@@ -322,7 +344,7 @@ final class Art {
                     Thread.sleep(60000);
                     continue;
                 }
-                if (code != 200) return null;
+                if (code != 200) throw new java.io.IOException("Apple's catalogue answered " + code + " " + con.getResponseMessage());
                 InputStream in = con.getInputStream();
                 ByteArrayOutputStream out = new ByteArrayOutputStream();
                 byte[] buf = new byte[16384];
