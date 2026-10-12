@@ -49,9 +49,9 @@ final class Scanner {
     }
 
     private static final int MAX_FOLDER_DEPTH = 5;
-    private static final int MAX_SHARE_DEPTH = 4;
+    private static final int MAX_SHARE_DEPTH = 8;
     private static final int MAX_WEB_DEPTH = 3;
-    private static final int MAX_FOLDERS = 400;
+    private static final int MAX_FOLDERS = 3000;
     private static final Pattern HREF = Pattern.compile("href\\s*=\\s*[\"']([^\"'#]+)[\"']", Pattern.CASE_INSENSITIVE);
 
     private final Context ctx;
@@ -425,9 +425,19 @@ final class Scanner {
         private boolean noted;
         private boolean finished;
 
+        private int answered;
+        private int slow;
+
         private final Runnable timeout = new Runnable() {
             @Override
             public void run() {
+                /* One slow folder should not end the whole share: skip it and go on,
+                   unless the share has not answered at all. */
+                if (answered > 0) {
+                    slow++;
+                    next();
+                    return;
+                }
                 if (count == 0 && !noted) {
                     notes.add(source.displayName() + ": no answer from the share. Check the address includes the shared folder"
                             + " (for example 192.168.1.20/Films) and that file sharing (SMB) is turned on");
@@ -491,6 +501,7 @@ final class Scanner {
 
         @Override
         public void onBrowseEnd() {
+            answered++;
             next();
         }
 
@@ -499,6 +510,13 @@ final class Scanner {
             finished = true;
             main.removeCallbacks(timeout);
             browser.release();
+            if (slow > 0) {
+                notes.add(source.displayName() + ": " + slow + (slow == 1 ? " folder" : " folders")
+                        + " did not answer in time and were skipped. Rescan to try again");
+            }
+            if (seen.size() > MAX_FOLDERS) {
+                notes.add(source.displayName() + ": stopped after " + MAX_FOLDERS + " folders. Point the source at the folder holding your discs");
+            }
             if (folderDiscs > 0) {
                 notes.add(source.displayName() + ": " + folderDiscs + (folderDiscs == 1 ? " disc folder" : " disc folders")
                         + " (VIDEO_TS or BDMV) skipped. Over a network share discs need to be ISO files;"

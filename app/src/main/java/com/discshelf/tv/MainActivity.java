@@ -40,6 +40,8 @@ public class MainActivity extends Activity implements Scanner.Listener {
     private Map<String, Store.Resume> resumes = new HashMap<>();
     private Scanner scanner;
     private boolean askedPermission;
+    /** After a Rescan press, anything the scan skipped is shown in full, not cut off in the status line. */
+    private boolean explainAfterScan;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,6 +69,7 @@ public class MainActivity extends Activity implements Scanner.Listener {
         findViewById(R.id.btn_rescan).setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
+                explainAfterScan = true;
                 rescan();
             }
         });
@@ -148,7 +151,18 @@ public class MainActivity extends Activity implements Scanner.Listener {
         sb.append(found.size()).append(found.size() == 1 ? " disc" : " discs");
         for (String n : notes) sb.append("   ·   ").append(n);
         status.setText(sb.toString());
-        if (found.isEmpty()) explainEmpty(notes);
+        if (found.isEmpty()) {
+            explainEmpty(notes);
+        } else if (explainAfterScan && !notes.isEmpty()) {
+            StringBuilder all = new StringBuilder();
+            for (String n : notes) all.append(all.length() == 0 ? "" : "\n\n").append(n);
+            new AlertDialog.Builder(this)
+                    .setTitle(found.size() + (found.size() == 1 ? " disc found" : " discs found") + ", with notes")
+                    .setMessage(all.toString())
+                    .setPositiveButton("OK", null)
+                    .show();
+        }
+        explainAfterScan = false;
     }
 
     /** The status line is one short line, so an empty shelf spells out what each source reported. */
