@@ -6,6 +6,7 @@ import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
 import android.graphics.drawable.GradientDrawable;
 import android.os.Bundle;
 import android.view.KeyEvent;
@@ -16,6 +17,7 @@ import android.widget.AdapterView;
 import android.widget.BaseAdapter;
 import android.widget.Button;
 import android.widget.GridView;
+import android.widget.ImageView;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -25,7 +27,7 @@ import java.util.List;
 import java.util.Map;
 
 /** The shelf: every disc image found, as a grid to pick from with the remote. */
-public class MainActivity extends Activity implements Scanner.Listener {
+public class MainActivity extends Activity implements Scanner.Listener, Art.Listener {
 
     private static final int REQ_STORAGE = 7;
     private static final int[][] TILE_COLOURS = {
@@ -70,6 +72,7 @@ public class MainActivity extends Activity implements Scanner.Listener {
             @Override
             public void onClick(View v) {
                 explainAfterScan = true;
+                Art.retryMissing();
                 rescan();
             }
         });
@@ -88,6 +91,7 @@ public class MainActivity extends Activity implements Scanner.Listener {
             }
         });
 
+        Art.setListener(this);
         show(Store.discs(this));
         Store.takeDirty(this);
         if (needsStoragePermission()) {
@@ -118,6 +122,13 @@ public class MainActivity extends Activity implements Scanner.Listener {
     protected void onDestroy() {
         super.onDestroy();
         if (scanner != null) scanner.cancel();
+        Art.setListener(null);
+    }
+
+    /** A cover arrived; redraw the tiles on screen. */
+    @Override
+    public void onArt() {
+        adapter.notifyDataSetChanged();
     }
 
     private boolean needsStoragePermission() {
@@ -229,7 +240,7 @@ public class MainActivity extends Activity implements Scanner.Listener {
     }
 
     private void discOptions(final Disc d) {
-        String[] items = {"Play from the beginning", "Forget where I stopped"};
+        String[] items = {"Play from the beginning", "Forget where I stopped", "Try a different cover", "Show no cover"};
         new AlertDialog.Builder(this)
                 .setTitle(d.title)
                 .setItems(items, new DialogInterface.OnClickListener() {
@@ -237,8 +248,14 @@ public class MainActivity extends Activity implements Scanner.Listener {
                     public void onClick(DialogInterface dialog, int which) {
                         if (which == 0) {
                             play(d, false);
-                        } else {
+                        } else if (which == 1) {
                             Store.saveResume(MainActivity.this, d.id, null);
+                            show(discs);
+                        } else if (which == 2) {
+                            Art.next(MainActivity.this, d);
+                            show(discs);
+                        } else {
+                            Art.hide(MainActivity.this, d);
                             show(discs);
                         }
                     }
@@ -284,8 +301,19 @@ public class MainActivity extends Activity implements Scanner.Listener {
             GradientDrawable bg = new GradientDrawable(GradientDrawable.Orientation.TL_BR, c);
             bg.setCornerRadius(Util.dp(MainActivity.this, 10));
             v.setBackground(bg);
+            /* Rounded corners for the cover too. */
+            v.setClipToOutline(true);
 
-            ((TextView) v.findViewById(R.id.title)).setText(d.title);
+            Bitmap art = Art.get(MainActivity.this, d);
+            ImageView cover = (ImageView) v.findViewById(R.id.cover);
+            cover.setImageBitmap(art);
+            cover.setVisibility(art != null ? View.VISIBLE : View.GONE);
+            v.findViewById(R.id.scrim).setVisibility(art != null ? View.VISIBLE : View.GONE);
+
+            TextView title = (TextView) v.findViewById(R.id.title);
+            title.setText(d.title);
+            /* The cover carries the name; the text stays for discs without one. */
+            title.setVisibility(art != null ? View.INVISIBLE : View.VISIBLE);
             TextView kind = (TextView) v.findViewById(R.id.kind);
             kind.setText((Util.empty(d.kind) ? "ISO" : d.kind.toUpperCase()) + (d.folder ? " FOLDER" : ""));
             ((TextView) v.findViewById(R.id.size)).setText(Util.size(d.size));

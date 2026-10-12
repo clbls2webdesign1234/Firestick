@@ -22,6 +22,7 @@ final class Prefs {
     static final String SCAN_USB = "scan_usb";
     static final String NET_CACHE = "net_cache";
     static final String SCALE = "scale";
+    static final String ART_ONLINE = "art_online";
 
     static final String OUT_AUTO = "auto";
     static final String OUT_FORCE = "force";
@@ -76,5 +77,9 @@ final class Prefs {
 
     static String scale(Context c) {
         return get(c).getString(SCALE, "SURFACE_BEST_FIT");
+    }
+
+    static boolean artOnline(Context c) {
+        return get(c).getBoolean(ART_ONLINE, true);
     }
 }

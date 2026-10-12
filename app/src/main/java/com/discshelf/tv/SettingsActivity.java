@@ -104,6 +104,9 @@ public class SettingsActivity extends Activity {
                 new String[]{"1500", "3000", "6000", "10000"},
                 new String[]{"1.5 seconds", "3 seconds", "6 seconds", "10 seconds"}, "3000"));
         items.add(new Item(TOGGLE, Prefs.SCAN_USB, "Search USB drives automatically", null, null, null, "true"));
+        items.add(new Item(TOGGLE, Prefs.ART_ONLINE, "Find cover art online",
+                "Looks titles up in Apple's iTunes film and TV catalogue. A picture saved next to a disc on USB is used first",
+                null, null, "true"));
         items.add(new Item(INFO, "about", "About", null, null, null, ""));
 
         ListView list = (ListView) findViewById(R.id.list);
@@ -171,6 +174,7 @@ public class SettingsActivity extends Activity {
             boolean now = prefs.getBoolean(it.key, Boolean.parseBoolean(it.fallback));
             prefs.edit().putBoolean(it.key, !now).apply();
             if (Prefs.SCAN_USB.equals(it.key)) Store.markDirty(this);
+            if (Prefs.ART_ONLINE.equals(it.key)) Art.retryMissing();
             adapter.notifyDataSetChanged();
             return;
         }

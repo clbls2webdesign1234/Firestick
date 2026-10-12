@@ -83,7 +83,7 @@
             android:horizontalSpacing="18dp"
             android:listSelector="@drawable/tile_selector"
             android:nextFocusUp="@+id/btn_rescan"
-            android:numColumns="4"
+            android:numColumns="6"
             android:paddingStart="48dp"
             android:paddingTop="22dp"
             android:paddingEnd="48dp"

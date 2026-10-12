@@ -1,0 +1,339 @@
+package com.discshelf.tv;
+
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.LruCache;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+/**
+ * Cover art for the shelf. A picture saved beside the disc wins (The Matrix.jpg next to
+ * The Matrix.iso, or cover.jpg / folder.jpg / poster.jpg inside a disc folder); otherwise
+ * the title is looked up in Apple's iTunes film and TV catalogue, which needs no account.
+ * Covers found online are kept in the app's own storage, so each is fetched once.
+ */
+final class Art {
+    private Art() {}
+
+    interface Listener {
+        void onArt();
+    }
+
+    private static final String[] COVER_NAMES = {"cover", "folder", "poster", "front"};
+    private static final String[] IMAGE_EXTS = {".jpg", ".jpeg", ".png"};
+    /** A title with no match is tried again after this long, in case the catalogue gains it. */
+    private static final long MISS_RETRY_MS = 14L * 24 * 3600 * 1000;
+    /** Apple allows about 20 searches a minute. */
+    private static final long LOOKUP_GAP_MS = 3500;
+
+    private static final ExecutorService worker = Executors.newSingleThreadExecutor();
+    private static final Handler main = new Handler(Looper.getMainLooper());
+    private static final Set<String> pending = new HashSet<>();
+    private static final Set<String> failed = new HashSet<>();
+    private static final LruCache<String, Bitmap> memory =
+            new LruCache<String, Bitmap>((int) Math.min(Runtime.getRuntime().maxMemory() / 8, 48L * 1024 * 1024)) {
+                @Override
+                protected int sizeOf(String key, Bitmap b) {
+                    return b.getByteCount();
+                }
+            };
+    private static Listener listener;
+    private static long lastLookup;
+
+    static void setListener(Listener l) {
+        listener = l;
+    }
+
+    /** The cover if it is ready; otherwise null, and it is fetched in the background. */
+    static Bitmap get(Context c, Disc d) {
+        Bitmap b = memory.get(d.id);
+        if (b != null || failed.contains(d.id)) return b;
+        synchronized (pending) {
+            if (pending.contains(d.id)) return null;
+            pending.add(d.id);
+        }
+        final Context app = c.getApplicationContext();
+        final Disc disc = d;
+        worker.execute(new Runnable() {
+            @Override
+            public void run() {
+                Bitmap found = null;
+                try {
+                    found = load(app, disc);
+                } catch (Throwable ignored) {
+                }
+                final Bitmap result = found;
+                main.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        synchronized (pending) {
+                            pending.remove(disc.id);
+                        }
+                        if (result != null) memory.put(disc.id, result);
+                        else failed.add(disc.id);
+                        if (result != null && listener != null) listener.onArt();
+                    }
+                });
+            }
+        });
+        return null;
+    }
+
+    /** "Try a different cover": the next catalogue match replaces this one. */
+    static void next(Context c, Disc d) {
+        SharedPreferences sp = sp(c);
+        sp.edit().putInt("n_" + d.id, sp.getInt("n_" + d.id, 0) + 1)
+                .remove("none_" + d.id).remove("miss_" + d.id).apply();
+        forget(c, d);
+    }
+
+    /** "Show no cover" for a disc whose matches are all wrong. */
+    static void hide(Context c, Disc d) {
+        sp(c).edit().putBoolean("none_" + d.id, true).apply();
+        forget(c, d);
+    }
+
+    /** Called on Rescan, so pictures added beside the discs show up. */
+    static void retryMissing() {
+        failed.clear();
+    }
+
+    private static void forget(Context c, Disc d) {
+        file(c, d).delete();
+        memory.remove(d.id);
+        failed.remove(d.id);
+    }
+
+    private static SharedPreferences sp(Context c) {
+        return c.getApplicationContext().getSharedPreferences("art", Context.MODE_PRIVATE);
+    }
+
+    private static File file(Context c, Disc d) {
+        return new File(new File(c.getFilesDir(), "art"), d.id + ".jpg");
+    }
+
+    // ---- Background work -------------------------------------------------------------
+
+    private static Bitmap load(Context c, Disc d) throws Exception {
+        if (sp(c).getBoolean("none_" + d.id, false)) return null;
+
+        File own = besideDisc(d);
+        if (own != null) return decode(own);
+
+        File cached = file(c, d);
+        if (cached.exists()) return decode(cached);
+
+        if (!Prefs.artOnline(c)) return null;
+        long miss = sp(c).getLong("miss_" + d.id, 0);
+        if (miss > 0 && System.currentTimeMillis() - miss < MISS_RETRY_MS) return null;
+
+        String url = lookup(d.title, sp(c).getInt("n_" + d.id, 0));
+        if (url == null) {
+            sp(c).edit().putLong("miss_" + d.id, System.currentTimeMillis()).apply();
+            return null;
+        }
+        byte[] img = fetch(url);
+        if (img == null) return null;
+        cached.getParentFile().mkdirs();
+        FileOutputStream out = new FileOutputStream(cached);
+        try {
+            out.write(img);
+        } finally {
+            out.close();
+        }
+        return decode(cached);
+    }
+
+    /** A picture the owner saved next to the disc, for discs on USB or the Fire TV itself. */
+    private static File besideDisc(Disc d) {
+        if (!d.isLocalPath()) return null;
+        File disc = new File(d.location);
+        if (d.folder) {
+            for (String n : COVER_NAMES) {
+                for (String ext : IMAGE_EXTS) {
+                    File f = Util.child(disc, n + ext);
+                    if (f != null && f.isFile()) return f;
+                }
+            }
+            return null;
+        }
+        String base = disc.getName();
+        int dot = base.lastIndexOf('.');
+        if (dot > 0) base = base.substring(0, dot);
+        for (String ext : IMAGE_EXTS) {
+            File f = Util.child(disc.getParentFile(), base + ext);
+            if (f != null && f.isFile()) return f;
+        }
+        return null;
+    }
+
+    private static Bitmap decode(File f) {
+        BitmapFactory.Options o = new BitmapFactory.Options();
+        o.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(f.getAbsolutePath(), o);
+        if (o.outWidth <= 0) return null;
+        int sample = 1;
+        while (o.outWidth / (sample * 2) >= 360) sample *= 2;
+        BitmapFactory.Options real = new BitmapFactory.Options();
+        real.inSampleSize = sample;
+        real.inPreferredConfig = Bitmap.Config.RGB_565;
+        return BitmapFactory.decodeFile(f.getAbsolutePath(), real);
+    }
+
+    // ---- Catalogue lookup ------------------------------------------------------------
+
+    private static final Pattern YEAR = Pattern.compile("(?:^|[\\s(\\[])((?:19|20)\\d\\d)(?:$|[\\s)\\]])");
+    private static final Pattern SEASON = Pattern.compile(
+            "(?i)\\b(?:season\\s*(\\d{1,2})|series\\s*(\\d{1,2})|s(\\d{1,2})(?:\\s*d\\d+|e\\d+)?)\\b");
+    private static final Pattern NOISE = Pattern.compile(
+            "(?i)\\b(?:disc|disk|dvd|cd|d)\\s*\\d+\\b|\\b(?:dvd\\d?|dvdr|dvd9|dvd5|blu-?ray|bluray|bd|bdrip|iso|pal|ntsc"
+                    + "|1080p|1080i|720p|480p|576p|2160p|4k|uhd|hdr|remux|ws|widescreen|fullscreen|fs"
+                    + "|special edition|collectors edition|collector's edition|extended( edition| cut)?"
+                    + "|directors cut|director's cut|unrated|remastered|region \\d|r\\d|x264|x265|h264|hevc"
+                    + "|ac3|dts|dd5 1|truehd|atmos)\\b");
+
+    /** The URL of the n-th best cover for this title, or null. */
+    private static String lookup(String title, int n) throws Exception {
+        String t = title.replaceAll("\\[[^\\]]*\\]", " ").replace('-', ' ');
+        int year = 0;
+        Matcher y = YEAR.matcher(t);
+        int latest = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) + 1;
+        /* A number that opens the title ("2001 A Space Odyssey") or lies ahead ("Blade Runner 2049") is part of the name. */
+        while (y.find()) {
+            int v = Integer.parseInt(y.group(1));
+            if (y.start(1) > 0 && v <= latest) year = v;
+        }
+        if (year > 0) t = t.replaceAll("\\b" + year + "\\b", " ");
+
+        int season = 0;
+        Matcher s = SEASON.matcher(t);
+        if (s.find()) {
+            for (int g = 1; g <= 3; g++) if (s.group(g) != null) season = Integer.parseInt(s.group(g));
+            t = t.substring(0, s.start());
+        }
+        t = NOISE.matcher(t).replaceAll(" ").replaceAll("[()]", " ").replaceAll("\\s+", " ").trim();
+        if (t.length() < 2) return null;
+
+        List<String> covers = season > 0 ? tvCovers(t, season) : movieCovers(t, year);
+        if (covers.isEmpty()) covers = season > 0 ? movieCovers(t, year) : tvCovers(t, 0);
+        if (covers.isEmpty()) return null;
+        return covers.get(n % covers.size());
+    }
+
+    private static List<String> movieCovers(String term, int year) throws Exception {
+        JSONArray results = search(term, "movie", "movie");
+        List<String> close = new ArrayList<>();
+        List<String> rest = new ArrayList<>();
+        for (int i = 0; i < results.length(); i++) {
+            JSONObject r = results.getJSONObject(i);
+            String art = big(r.optString("artworkUrl100", ""));
+            if (art == null) continue;
+            int ry = yearOf(r.optString("releaseDate", ""));
+            if (year > 0 && ry > 0 && Math.abs(ry - year) <= 1) close.add(art);
+            else rest.add(art);
+        }
+        close.addAll(rest);
+        return close;
+    }
+
+    private static List<String> tvCovers(String term, int season) throws Exception {
+        JSONArray results = search(season > 0 ? term + " season " + season : term, "tvShow", "tvSeason");
+        List<String> exact = new ArrayList<>();
+        List<String> rest = new ArrayList<>();
+        Pattern want = Pattern.compile("(?i)\\bseason\\s*0*" + season + "\\b");
+        for (int i = 0; i < results.length(); i++) {
+            JSONObject r = results.getJSONObject(i);
+            String art = big(r.optString("artworkUrl100", ""));
+            if (art == null) continue;
+            if (season > 0 && want.matcher(r.optString("collectionName", "")).find()) exact.add(art);
+            else rest.add(art);
+        }
+        exact.addAll(rest);
+        return exact;
+    }
+
+    private static JSONArray search(String term, String media, String entity) throws Exception {
+        String country = Locale.getDefault().getCountry();
+        if (country.length() != 2) country = "AU";
+        JSONArray a = searchIn(term, media, entity, country);
+        if (a.length() == 0 && !"US".equalsIgnoreCase(country)) a = searchIn(term, media, entity, "US");
+        return a;
+    }
+
+    private static JSONArray searchIn(String term, String media, String entity, String country) throws Exception {
+        long wait = lastLookup + LOOKUP_GAP_MS - System.currentTimeMillis();
+        if (wait > 0) Thread.sleep(wait);
+        lastLookup = System.currentTimeMillis();
+        String url = "https://itunes.apple.com/search?media=" + media + "&entity=" + entity
+                + "&limit=10&country=" + country.toLowerCase(Locale.US) + "&term=" + Uri.encode(term);
+        byte[] body = fetch(url);
+        if (body == null) return new JSONArray();
+        JSONArray a = new JSONObject(new String(body, "UTF-8")).optJSONArray("results");
+        return a == null ? new JSONArray() : a;
+    }
+
+    /** iTunes artwork URLs name their size; asking for 600 gives a sharp poster. */
+    private static String big(String art) {
+        if (art.isEmpty()) return null;
+        return art.replaceAll("/\\d+x\\d+bb\\.", "/600x600bb.");
+    }
+
+    private static int yearOf(String date) {
+        if (date.length() < 4) return 0;
+        try {
+            return Integer.parseInt(date.substring(0, 4));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    private static byte[] fetch(String url) throws Exception {
+        for (int attempt = 0; attempt < 2; attempt++) {
+            HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
+            con.setConnectTimeout(10000);
+            con.setReadTimeout(15000);
+            con.setRequestProperty("User-Agent", "DiscShelf");
+            try {
+                int code = con.getResponseCode();
+                if (code == 403 || code == 429) {
+                    /* Asked too often: wait a minute and try once more. */
+                    Thread.sleep(60000);
+                    continue;
+                }
+                if (code != 200) return null;
+                InputStream in = con.getInputStream();
+                ByteArrayOutputStream out = new ByteArrayOutputStream();
+                byte[] buf = new byte[16384];
+                int r;
+                while ((r = in.read(buf)) > 0) out.write(buf, 0, r);
+                in.close();
+                return out.toByteArray();
+            } finally {
+                con.disconnect();
+            }
+        }
+        throw new java.io.IOException("catalogue busy");
+    }
+}

@@ -109,6 +109,19 @@ A line can also name a disc folder on USB storage, for example
 Paths without a server are taken relative to the list file's own location.
 M3U playlists (`#EXTINF:-1,Title` followed by the address) are read too.
 
+## Cover art
+
+Each tile shows the disc's cover when one can be found:
+
+1. A picture saved beside the disc on a USB drive or the Fire TV: `The Matrix.jpg` next to
+   `The Matrix.iso`, or `cover.jpg`, `folder.jpg`, `poster.jpg` or `front.jpg` inside a disc folder.
+2. Otherwise the title is looked up in Apple's iTunes film and TV catalogue (no account needed).
+   Covers are saved on the stick, so each is fetched once. Names with a year
+   (`The Matrix 1999`) or a season (`Friends Season 3 Disc 2`) match best.
+
+Hold Select (or press Menu) on a tile for **Try a different cover** or **Show no cover**.
+Online lookup can be turned off under Settings.
+
 ## Remote control
 
 | Where | Button | Does |
