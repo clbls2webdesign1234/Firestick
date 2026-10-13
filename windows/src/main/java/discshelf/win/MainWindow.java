@@ -357,7 +357,7 @@ final class MainWindow extends JFrame {
                 + "<p><b>1.</b> Press <b>Search Google</b>. Your browser shows pictures for this disc.</p><br>"
                 + "<p><b>2.</b> Click the right picture, then right-click the large version and choose <b>Copy image</b>.</p><br>"
                 + "<p><b>3.</b> Come back here and press <b>Paste picture</b>.</p><br>"
-                + "<p style='color:gray'>The cover is saved next to the disc, so the Fire TV shows it too.</p></body></html>";
+                + "<p style='color:gray'>The cover is saved next to the disc.</p></body></html>";
         Object[] options = {"Search Google", "Paste picture", "Picture file…", "Cancel"};
         while (true) {
             int c = JOptionPane.showOptionDialog(this, help, "Cover for " + d.title, JOptionPane.DEFAULT_OPTION,
@@ -395,7 +395,7 @@ final class MainWindow extends JFrame {
                 }
                 File saved = art.choose(d, picture);
                 status.setText(saved != null ? "Cover saved as " + saved.getPath()
-                        : "Cover saved on this PC only: the folder holding the disc can't be written to, so the Fire TV won't show it.");
+                        : "Cover saved on this PC only: the folder holding the disc can't be written to.");
                 return;
             } catch (Exception ex) {
                 JOptionPane.showMessageDialog(this, "The cover could not be used: " + ex.getMessage());

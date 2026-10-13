@@ -117,7 +117,7 @@ final class Art {
 
     /**
      * A cover the owner chose. It is saved beside the disc (The Matrix.jpg next to The Matrix.iso,
-     * or cover.jpg in a disc folder) so the Fire TV app shows it too. Returns that file, or null
+     * or cover.jpg in a disc folder). Returns that file, or null
      * when the share can't be written to and the cover was kept on this PC only.
      */
     File choose(Disc d, BufferedImage picture) throws IOException {

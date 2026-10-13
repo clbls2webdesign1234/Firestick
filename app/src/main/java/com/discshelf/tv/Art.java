@@ -89,13 +89,6 @@ final class Art {
                     try {
                         note("");
                         note("Disc: " + d.title);
-                        try {
-                            byte[] shared = ShareArt.beside(d, Store.source(app, d.sourceId));
-                            note(shared != null ? "Picture beside the disc on the share: " + shared.length + " bytes"
-                                    : "No picture beside the disc on the share.");
-                        } catch (Exception e) {
-                            note("Reading the share for a picture failed: " + e);
-                        }
                         String url = lookup(d.title, sp(app).getInt("n_" + d.id, 0));
                         if (url == null) {
                             note("No match in the catalogue.");
@@ -188,7 +181,6 @@ final class Art {
     static void retryMissing(Context c) {
         failed.clear();
         memory.evictAll();
-        ShareArt.refresh();
         problem = null;
         SharedPreferences sp = sp(c);
         SharedPreferences.Editor e = sp.edit();
@@ -227,18 +219,6 @@ final class Art {
         if (own != null) return decode(own);
 
         File cached = file(c, d);
-        /* A picture beside the disc on the share, for example one chosen in Disc Shelf for Windows. */
-        byte[] shared = null;
-        try {
-            shared = ShareArt.beside(d, Store.source(c, d.sourceId));
-        } catch (Exception e) {
-            note("Reading the share for a picture failed: " + e);
-        }
-        if (shared != null) {
-            note("Using the picture saved beside the disc on the share.");
-            save(cached, shared);
-            return decode(cached);
-        }
         if (cached.exists()) return decode(cached);
 
         if (!Prefs.artOnline(c)) return null;
