@@ -25,10 +25,67 @@ final class Store {
         return c.getApplicationContext().getSharedPreferences("library", Context.MODE_PRIVATE);
     }
 
+    /**
+     * A copy of the sources (logins included) on the stick's shared storage. It outlives an
+     * uninstall, so a reinstalled app finds its shares again without retyping anything.
+     */
+    private static java.io.File backup() {
+        return new java.io.File(new java.io.File(android.os.Environment.getExternalStorageDirectory(), "DiscShelf"), "sources.json");
+    }
+
+    static boolean hasSources(Context c) {
+        return sp(c).contains("sources");
+    }
+
+    /** Writes the backup; quietly does nothing until storage access is granted. */
+    static void backUpSources(Context c) {
+        String json = sp(c).getString("sources", null);
+        if (json == null) return;
+        try {
+            if ("[]".equals(json)) {
+                /* Every source was removed on purpose: don't bring them back after a reinstall. */
+                backup().delete();
+                return;
+            }
+            java.io.File f = backup();
+            f.getParentFile().mkdirs();
+            java.io.FileOutputStream out = new java.io.FileOutputStream(f);
+            try {
+                out.write(json.getBytes("UTF-8"));
+            } finally {
+                out.close();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** After a reinstall the app starts with no sources; bring back the ones it had. */
+    private static String restoredSources(Context c) {
+        try {
+            java.io.File f = backup();
+            if (!f.isFile() || f.length() > 1024 * 1024) return null;
+            byte[] b = new byte[(int) f.length()];
+            java.io.DataInputStream in = new java.io.DataInputStream(new java.io.FileInputStream(f));
+            try {
+                in.readFully(b);
+            } finally {
+                in.close();
+            }
+            String json = new String(b, "UTF-8");
+            new JSONArray(json);
+            sp(c).edit().putString("sources", json).putBoolean("dirty", true).apply();
+            return json;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     static List<Source> sources(Context c) {
         List<Source> out = new ArrayList<>();
         try {
-            JSONArray a = new JSONArray(sp(c).getString("sources", "[]"));
+            String json = sp(c).getString("sources", null);
+            if (json == null) json = restoredSources(c);
+            JSONArray a = new JSONArray(json == null ? "[]" : json);
             for (int i = 0; i < a.length(); i++) out.add(Source.fromJson(a.getJSONObject(i)));
         } catch (Exception ignored) {
         }
@@ -39,7 +96,8 @@ final class Store {
         try {
             JSONArray a = new JSONArray();
             for (Source s : list) a.put(s.toJson());
-            sp(c).edit().putString("sources", a.toString()).putBoolean("dirty", true).apply();
+            sp(c).edit().putString("sources", a.toString()).putBoolean("dirty", true).commit();
+            backUpSources(c);
         } catch (Exception ignored) {
         }
     }

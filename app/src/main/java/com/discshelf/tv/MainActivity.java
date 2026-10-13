@@ -92,11 +92,14 @@ public class MainActivity extends Activity implements Scanner.Listener, Art.List
         });
 
         Art.setListener(this);
+        boolean restored = !Store.hasSources(this) && !Store.sources(this).isEmpty();
         show(Store.discs(this));
-        Store.takeDirty(this);
+        if (!restored) Store.takeDirty(this);
+        Store.backUpSources(this);
         if (needsStoragePermission()) {
             askedPermission = true;
-            requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQ_STORAGE);
+            requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQ_STORAGE);
         } else {
             rescan();
         }
@@ -108,7 +111,8 @@ public class MainActivity extends Activity implements Scanner.Listener, Art.List
         if (Store.takeDirty(this)) {
             if (needsStoragePermission() && !askedPermission) {
                 askedPermission = true;
-                requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE}, REQ_STORAGE);
+                requestPermissions(new String[]{Manifest.permission.READ_EXTERNAL_STORAGE,
+                    Manifest.permission.WRITE_EXTERNAL_STORAGE}, REQ_STORAGE);
             } else {
                 rescan();
             }
@@ -136,7 +140,8 @@ public class MainActivity extends Activity implements Scanner.Listener, Art.List
     }
 
     private boolean needsStoragePermission() {
-        if (Util.canReadStorage(this)) return false;
+        /* Write access keeps the backup of the sources; see Store.backUpSources. */
+        if (Util.canReadStorage(this) && Util.canWriteStorage(this)) return false;
         if (Prefs.scanUsb(this)) return true;
         for (Source s : Store.sources(this)) if (Source.LOCAL.equals(s.type)) return true;
         return false;
@@ -144,7 +149,10 @@ public class MainActivity extends Activity implements Scanner.Listener, Art.List
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
-        if (requestCode == REQ_STORAGE) rescan();
+        if (requestCode == REQ_STORAGE) {
+            Store.backUpSources(this);
+            rescan();
+        }
     }
 
     private void rescan() {

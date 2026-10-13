@@ -83,6 +83,12 @@ final class Util {
                 == android.content.pm.PackageManager.PERMISSION_GRANTED;
     }
 
+    static boolean canWriteStorage(Context c) {
+        return android.os.Build.VERSION.SDK_INT < 23
+                || c.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                == android.content.pm.PackageManager.PERMISSION_GRANTED;
+    }
+
     static int dp(Context c, float v) {
         return Math.round(v * c.getResources().getDisplayMetrics().density);
     }
