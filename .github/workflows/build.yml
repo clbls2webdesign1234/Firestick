@@ -30,19 +30,22 @@ jobs:
         run: sh ./gradlew --no-daemon --stacktrace assembleRelease
 
       - name: Name the APK
-        run: cp app/build/outputs/apk/release/app-release.apk DiscShelf.apk
+        # A versioned name too, so a download can never be mistaken for an older copy.
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk DiscShelf.apk
+          cp DiscShelf.apk "DiscShelf-1.0.${{ github.run_number }}.apk"
 
       - name: Keep the APK with this run
         uses: actions/upload-artifact@v5
         with:
           name: DiscShelf-apk
-          path: DiscShelf.apk
+          path: DiscShelf*.apk
 
       - name: Publish it as the latest release
         env:
           GH_TOKEN: ${{ github.token }}
         run: >
-          gh release create "build-${{ github.run_number }}" DiscShelf.apk
+          gh release create "build-${{ github.run_number }}" "DiscShelf-1.0.${{ github.run_number }}.apk" DiscShelf.apk
           --title "Disc Shelf build ${{ github.run_number }}"
           --notes "Install on a Fire TV with the Downloader app, or with adb install -r DiscShelf.apk."
           --latest
