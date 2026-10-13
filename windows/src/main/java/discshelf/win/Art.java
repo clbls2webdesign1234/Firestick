@@ -115,6 +115,52 @@ final class Art {
         forget(key);
     }
 
+    /**
+     * A cover the owner chose. It is saved beside the disc (The Matrix.jpg next to The Matrix.iso,
+     * or cover.jpg in a disc folder) so the Fire TV app shows it too. Returns that file, or null
+     * when the share can't be written to and the cover was kept on this PC only.
+     */
+    File choose(Disc d, BufferedImage picture) throws IOException {
+        BufferedImage rgb = new BufferedImage(picture.getWidth(), picture.getHeight(), BufferedImage.TYPE_INT_RGB);
+        java.awt.Graphics2D g = rgb.createGraphics();
+        g.setColor(java.awt.Color.BLACK);
+        g.fillRect(0, 0, rgb.getWidth(), rgb.getHeight());
+        g.drawImage(picture, 0, 0, null);
+        g.dispose();
+
+        String key = key(d);
+        File beside;
+        if (d.folder) {
+            beside = new File(d.path, "cover.jpg");
+        } else {
+            File disc = new File(d.path);
+            String base = disc.getName();
+            int dot = base.lastIndexOf('.');
+            if (dot > 0) base = base.substring(0, dot);
+            beside = new File(disc.getParentFile(), base + ".jpg");
+        }
+        File saved = null;
+        try {
+            if (ImageIO.write(rgb, "jpg", beside)) saved = beside;
+        } catch (IOException ignored) {
+        }
+        if (saved == null) {
+            dir.mkdirs();
+            if (!ImageIO.write(rgb, "jpg", new File(dir, key + ".v2.jpg"))) throw new IOException("the picture could not be saved");
+        }
+        P.remove("none_" + key);
+        memory.put(key, shrink(rgb));
+        failed.remove(key);
+        changed.run();
+        return saved;
+    }
+
+    /** A picture from a web address, for a pasted link. Null when it isn't a picture Java can read. */
+    BufferedImage download(String url) throws Exception {
+        byte[] b = fetch(url);
+        return b == null ? null : ImageIO.read(new java.io.ByteArrayInputStream(b));
+    }
+
     /** "Show no cover" for a disc whose matches are all wrong. */
     void hide(Disc d) {
         String key = key(d);
@@ -129,7 +175,7 @@ final class Art {
     }
 
     private void forget(String key) {
-        new File(dir, key + ".jpg").delete();
+        new File(dir, key + ".v2.jpg").delete();
         memory.remove(key);
         failed.remove(key);
         changed.run();
@@ -154,7 +200,7 @@ final class Art {
         File own = besideDisc(d);
         if (own != null) return decode(own);
 
-        File cached = new File(dir, key + ".jpg");
+        File cached = new File(dir, key + ".v2.jpg");
         if (cached.isFile()) return decode(cached);
 
         if (!online()) return null;
@@ -198,7 +244,10 @@ final class Art {
     /** Read and shrink to tile size, so hundreds of covers stay light. */
     private static BufferedImage decode(File f) throws IOException {
         BufferedImage src = ImageIO.read(f);
-        if (src == null) return null;
+        return src == null ? null : shrink(src);
+    }
+
+    private static BufferedImage shrink(BufferedImage src) {
         int w = 320;
         if (src.getWidth() <= w) return src;
         int h = Math.max(1, src.getHeight() * w / src.getWidth());
@@ -247,30 +296,31 @@ final class Art {
         t = NOISE.matcher(t).replaceAll(" ").replaceAll("[()]", " ").replaceAll("\\s+", " ").trim();
         if (t.length() < 2) return null;
 
-        List<String> covers = season > 0 ? tvCovers(t, season) : movieCovers(t, year);
-        if (covers.isEmpty()) covers = season > 0 ? movieCovers(t, year) : tvCovers(t, 0);
+        List<String> covers = season > 0 ? tvCovers(t, season, t) : movieCovers(t, year, t);
+        if (covers.isEmpty()) covers = season > 0 ? movieCovers(t, year, t) : tvCovers(t, 0, t);
         /* Concerts and music DVDs are in the music catalogue. */
-        if (covers.isEmpty()) covers = albumCovers(t);
+        if (covers.isEmpty()) covers = albumCovers(t, t);
         /* Names with words run together ("CELINE DION Anewdayliveinlasvegas") match on their first words. */
         String[] words = t.split(" ");
         for (int keep = Math.min(words.length - 1, 3); covers.isEmpty() && keep >= 2; keep--) {
             StringBuilder shorter = new StringBuilder();
             for (int i = 0; i < keep; i++) shorter.append(i == 0 ? "" : " ").append(words[i]);
-            covers = movieCovers(shorter.toString(), year);
-            if (covers.isEmpty()) covers = albumCovers(shorter.toString());
+            /* Results must still match the whole name, so a shorter search can't bring back a random cover. */
+            covers = movieCovers(shorter.toString(), year, t);
+            if (covers.isEmpty()) covers = albumCovers(shorter.toString(), t);
         }
         if (covers.isEmpty()) return null;
         return covers.get(n % covers.size());
     }
 
-    private List<String> movieCovers(String term, int year) throws Exception {
+    private List<String> movieCovers(String term, int year, String want) throws Exception {
         JSONArray results = search(term, "movie", "movie");
         List<String> close = new ArrayList<>();
         List<String> rest = new ArrayList<>();
         for (int i = 0; i < results.length(); i++) {
             JSONObject r = results.getJSONObject(i);
             String art = big(r.optString("artworkUrl100", ""));
-            if (art == null) continue;
+            if (art == null || !sameTitle(want, r.optString("trackName", "") + " " + r.optString("artistName", ""))) continue;
             int ry = yearOf(r.optString("releaseDate", ""));
             if (year > 0 && ry > 0 && Math.abs(ry - year) <= 1) close.add(art);
             else rest.add(art);
@@ -279,26 +329,27 @@ final class Art {
         return close;
     }
 
-    private List<String> albumCovers(String term) throws Exception {
+    private List<String> albumCovers(String term, String want) throws Exception {
         JSONArray results = search(term, "music", "album");
         List<String> out = new ArrayList<>();
         for (int i = 0; i < results.length(); i++) {
-            String art = big(results.getJSONObject(i).optString("artworkUrl100", ""));
-            if (art != null) out.add(art);
+            JSONObject r = results.getJSONObject(i);
+            String art = big(r.optString("artworkUrl100", ""));
+            if (art != null && sameTitle(want, r.optString("artistName", "") + " " + r.optString("collectionName", ""))) out.add(art);
         }
         return out;
     }
 
-    private List<String> tvCovers(String term, int season) throws Exception {
+    private List<String> tvCovers(String term, int season, String want) throws Exception {
         JSONArray results = search(season > 0 ? term + " season " + season : term, "tvShow", "tvSeason");
         List<String> exact = new ArrayList<>();
         List<String> rest = new ArrayList<>();
-        Pattern want = Pattern.compile("(?i)\\bseason\\s*0*" + season + "\\b");
+        Pattern seasonName = Pattern.compile("(?i)\\bseason\\s*0*" + season + "\\b");
         for (int i = 0; i < results.length(); i++) {
             JSONObject r = results.getJSONObject(i);
             String art = big(r.optString("artworkUrl100", ""));
-            if (art == null) continue;
-            if (season > 0 && want.matcher(r.optString("collectionName", "")).find()) exact.add(art);
+            if (art == null || !sameTitle(want, r.optString("collectionName", "") + " " + r.optString("artistName", ""))) continue;
+            if (season > 0 && seasonName.matcher(r.optString("collectionName", "")).find()) exact.add(art);
             else rest.add(art);
         }
         exact.addAll(rest);
@@ -324,6 +375,32 @@ final class Art {
         if (body == null) return new JSONArray();
         JSONArray a = new JSONObject(new String(body, StandardCharsets.UTF_8)).optJSONArray("results");
         return a == null ? new JSONArray() : a;
+    }
+
+    private static final Set<String> SMALL_WORDS = new HashSet<>(java.util.Arrays.asList(
+            "the", "a", "an", "and", "of", "in", "on", "at", "to", "for", "with", "live"));
+
+    /**
+     * True when the catalogue's name is really this disc: most of the disc's words appear in it.
+     * Words run together on the disc ("Anewdayliveinlasvegas") count when the joined-up name contains them.
+     */
+    static boolean sameTitle(String disc, String found) {
+        String f = plain(found);
+        Set<String> foundWords = new HashSet<>(java.util.Arrays.asList(f.split(" ")));
+        String joined = f.replace(" ", "");
+        int words = 0, hits = 0;
+        for (String w : plain(disc).split(" ")) {
+            if (w.isEmpty() || SMALL_WORDS.contains(w)) continue;
+            words++;
+            if (foundWords.contains(w) || (w.length() >= 4 && joined.contains(w))) hits++;
+        }
+        return words > 0 && hits * 10 >= words * 7;
+    }
+
+    /** "Céline Dion: A New Day..." becomes "celine dion a new day". */
+    private static String plain(String s) {
+        String n = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
+        return n.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
     }
 
     /** iTunes artwork URLs name their size; asking for 600 gives a sharp poster. */

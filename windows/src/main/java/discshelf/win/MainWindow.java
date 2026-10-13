@@ -333,6 +333,8 @@ final class MainWindow extends JFrame {
                 }
             }
         });
+        JMenuItem pick = new JMenuItem("Choose cover…");
+        pick.addActionListener(e -> chooseCover(d));
         JMenuItem other = new JMenuItem("Try a different cover");
         other.addActionListener(e -> art.next(d));
         JMenuItem none = new JMenuItem("Show no cover");
@@ -341,11 +343,87 @@ final class MainWindow extends JFrame {
         m.add(fresh);
         m.add(forget);
         m.addSeparator();
+        m.add(pick);
         m.add(other);
         m.add(none);
         m.addSeparator();
         m.add(show);
         return m;
+    }
+
+    /** The owner picks the cover: found on Google, copied, and pasted here; or a picture file. */
+    private void chooseCover(Disc d) {
+        String help = "<html><body style='width:360px'>"
+                + "<p><b>1.</b> Press <b>Search Google</b>. Your browser shows pictures for this disc.</p><br>"
+                + "<p><b>2.</b> Click the right picture, then right-click the large version and choose <b>Copy image</b>.</p><br>"
+                + "<p><b>3.</b> Come back here and press <b>Paste picture</b>.</p><br>"
+                + "<p style='color:gray'>The cover is saved next to the disc, so the Fire TV shows it too.</p></body></html>";
+        Object[] options = {"Search Google", "Paste picture", "Picture file…", "Cancel"};
+        while (true) {
+            int c = JOptionPane.showOptionDialog(this, help, "Cover for " + d.title, JOptionPane.DEFAULT_OPTION,
+                    JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
+            if (c == 0) {
+                try {
+                    String q = java.net.URLEncoder.encode(d.title + " DVD cover", java.nio.charset.StandardCharsets.UTF_8);
+                    Desktop.getDesktop().browse(new java.net.URI("https://www.google.com/search?tbm=isch&q=" + q));
+                } catch (Exception ex) {
+                    JOptionPane.showMessageDialog(this, "The browser could not be opened: " + ex.getMessage());
+                }
+                options[0] = "Search again";
+                continue;
+            }
+            BufferedImage picture = null;
+            try {
+                if (c == 1) {
+                    picture = pastedPicture();
+                    if (picture == null) {
+                        JOptionPane.showMessageDialog(this, "There's no picture to paste yet. In your browser, right-click"
+                                + " the picture and choose Copy image, then press Paste picture again.");
+                        continue;
+                    }
+                } else if (c == 2) {
+                    JFileChooser fc = new JFileChooser(new File(d.path).getParentFile());
+                    fc.setFileFilter(new FileNameExtensionFilter("Pictures", "jpg", "jpeg", "png", "gif", "bmp"));
+                    if (fc.showOpenDialog(this) != JFileChooser.APPROVE_OPTION) continue;
+                    picture = javax.imageio.ImageIO.read(fc.getSelectedFile());
+                    if (picture == null) {
+                        JOptionPane.showMessageDialog(this, "That file isn't a picture Disc Shelf can read. Try a JPG or PNG.");
+                        continue;
+                    }
+                } else {
+                    return;
+                }
+                File saved = art.choose(d, picture);
+                status.setText(saved != null ? "Cover saved as " + saved.getPath()
+                        : "Cover saved on this PC only: the folder holding the disc can't be written to, so the Fire TV won't show it.");
+                return;
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(this, "The cover could not be used: " + ex.getMessage());
+            }
+        }
+    }
+
+    /** A picture on the clipboard: copied from a browser, copied as a file, or copied as a web address. */
+    private BufferedImage pastedPicture() throws Exception {
+        java.awt.datatransfer.Clipboard cb = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard();
+        if (cb.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.imageFlavor)) {
+            java.awt.Image img = (java.awt.Image) cb.getData(java.awt.datatransfer.DataFlavor.imageFlavor);
+            BufferedImage b = new BufferedImage(img.getWidth(null), img.getHeight(null), BufferedImage.TYPE_INT_ARGB);
+            java.awt.Graphics2D g = b.createGraphics();
+            g.drawImage(img, 0, 0, null);
+            g.dispose();
+            return b;
+        }
+        if (cb.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.javaFileListFlavor)) {
+            @SuppressWarnings("unchecked")
+            List<File> files = (List<File>) cb.getData(java.awt.datatransfer.DataFlavor.javaFileListFlavor);
+            if (!files.isEmpty()) return javax.imageio.ImageIO.read(files.get(0));
+        }
+        if (cb.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+            String text = ((String) cb.getData(java.awt.datatransfer.DataFlavor.stringFlavor)).trim();
+            if (text.startsWith("http://") || text.startsWith("https://")) return art.download(text);
+        }
+        return null;
     }
 
     // ------------------------------------------------------------ sources and settings

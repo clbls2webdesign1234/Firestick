@@ -36,6 +36,11 @@ Each tile shows the disc's cover when one can be found:
    Covers are saved in `%APPDATA%\DiscShelf\art`, so each is fetched once. Names with a year
    (`The Matrix 1999`) or a season (`Friends Season 3 Disc 2`) match best.
 
+A catalogue cover is used only when its name matches the disc's. To pick the cover yourself,
+right-click a tile and choose **Choose cover…**: press Search Google, right-click the right picture
+in your browser and choose Copy image, then press Paste picture. It is saved beside the disc
+(`The Matrix.jpg`), so the Fire TV app shows it too.
+
 Right-click a tile for **Try a different cover** or **Show no cover**. Hover over a tile to see
 its name. Online lookup can be turned off under **Settings**.
 

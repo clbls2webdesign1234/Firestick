@@ -89,6 +89,13 @@ final class Art {
                     try {
                         note("");
                         note("Disc: " + d.title);
+                        try {
+                            byte[] shared = ShareArt.beside(d, Store.source(app, d.sourceId));
+                            note(shared != null ? "Picture beside the disc on the share: " + shared.length + " bytes"
+                                    : "No picture beside the disc on the share.");
+                        } catch (Exception e) {
+                            note("Reading the share for a picture failed: " + e);
+                        }
                         String url = lookup(d.title, sp(app).getInt("n_" + d.id, 0));
                         if (url == null) {
                             note("No match in the catalogue.");
@@ -180,6 +187,8 @@ final class Art {
     /** Called on Rescan, so pictures added beside the discs show up and titles not found are searched again. */
     static void retryMissing(Context c) {
         failed.clear();
+        memory.evictAll();
+        ShareArt.refresh();
         problem = null;
         SharedPreferences sp = sp(c);
         SharedPreferences.Editor e = sp.edit();
@@ -206,7 +215,7 @@ final class Art {
     }
 
     private static File file(Context c, Disc d) {
-        return new File(new File(c.getFilesDir(), "art"), d.id + ".jpg");
+        return new File(new File(c.getFilesDir(), "art"), d.id + ".v2.jpg");
     }
 
     // ---- Background work -------------------------------------------------------------
@@ -218,6 +227,18 @@ final class Art {
         if (own != null) return decode(own);
 
         File cached = file(c, d);
+        /* A picture beside the disc on the share, for example one chosen in Disc Shelf for Windows. */
+        byte[] shared = null;
+        try {
+            shared = ShareArt.beside(d, Store.source(c, d.sourceId));
+        } catch (Exception e) {
+            note("Reading the share for a picture failed: " + e);
+        }
+        if (shared != null) {
+            note("Using the picture saved beside the disc on the share.");
+            save(cached, shared);
+            return decode(cached);
+        }
         if (cached.exists()) return decode(cached);
 
         if (!Prefs.artOnline(c)) return null;
@@ -231,14 +252,18 @@ final class Art {
         }
         byte[] img = fetch(url);
         if (img == null) return null;
-        cached.getParentFile().mkdirs();
-        FileOutputStream out = new FileOutputStream(cached);
+        save(cached, img);
+        return decode(cached);
+    }
+
+    private static void save(File f, byte[] data) throws Exception {
+        f.getParentFile().mkdirs();
+        FileOutputStream out = new FileOutputStream(f);
         try {
-            out.write(img);
+            out.write(data);
         } finally {
             out.close();
         }
-        return decode(cached);
     }
 
     /** A picture the owner saved next to the disc, for discs on USB or the Fire TV itself. */
@@ -314,30 +339,31 @@ final class Art {
         note("Search words: \"" + t + "\"" + (year > 0 ? ", year " + year : "") + (season > 0 ? ", season " + season : ""));
         if (t.length() < 2) return null;
 
-        List<String> covers = season > 0 ? tvCovers(t, season) : movieCovers(t, year);
-        if (covers.isEmpty()) covers = season > 0 ? movieCovers(t, year) : tvCovers(t, 0);
+        List<String> covers = season > 0 ? tvCovers(t, season, t) : movieCovers(t, year, t);
+        if (covers.isEmpty()) covers = season > 0 ? movieCovers(t, year, t) : tvCovers(t, 0, t);
         /* Concerts and music DVDs are in the music catalogue. */
-        if (covers.isEmpty()) covers = albumCovers(t);
+        if (covers.isEmpty()) covers = albumCovers(t, t);
         /* Names with words run together ("CELINE DION Anewdayliveinlasvegas") match on their first words. */
         String[] words = t.split(" ");
         for (int keep = Math.min(words.length - 1, 3); covers.isEmpty() && keep >= 2; keep--) {
             StringBuilder shorter = new StringBuilder();
             for (int i = 0; i < keep; i++) shorter.append(i == 0 ? "" : " ").append(words[i]);
-            covers = movieCovers(shorter.toString(), year);
-            if (covers.isEmpty()) covers = albumCovers(shorter.toString());
+            /* Results must still match the whole name, so a shorter search can't bring back a random cover. */
+            covers = movieCovers(shorter.toString(), year, t);
+            if (covers.isEmpty()) covers = albumCovers(shorter.toString(), t);
         }
         if (covers.isEmpty()) return null;
         return covers.get(n % covers.size());
     }
 
-    private static List<String> movieCovers(String term, int year) throws Exception {
+    private static List<String> movieCovers(String term, int year, String want) throws Exception {
         JSONArray results = search(term, "movie", "movie");
         List<String> close = new ArrayList<>();
         List<String> rest = new ArrayList<>();
         for (int i = 0; i < results.length(); i++) {
             JSONObject r = results.getJSONObject(i);
             String art = big(r.optString("artworkUrl100", ""));
-            if (art == null) continue;
+            if (art == null || !sameTitle(want, r.optString("trackName", "") + " " + r.optString("artistName", ""))) continue;
             int ry = yearOf(r.optString("releaseDate", ""));
             if (year > 0 && ry > 0 && Math.abs(ry - year) <= 1) close.add(art);
             else rest.add(art);
@@ -346,26 +372,27 @@ final class Art {
         return close;
     }
 
-    private static List<String> albumCovers(String term) throws Exception {
+    private static List<String> albumCovers(String term, String want) throws Exception {
         JSONArray results = search(term, "music", "album");
         List<String> out = new ArrayList<>();
         for (int i = 0; i < results.length(); i++) {
-            String art = big(results.getJSONObject(i).optString("artworkUrl100", ""));
-            if (art != null) out.add(art);
+            JSONObject r = results.getJSONObject(i);
+            String art = big(r.optString("artworkUrl100", ""));
+            if (art != null && sameTitle(want, r.optString("artistName", "") + " " + r.optString("collectionName", ""))) out.add(art);
         }
         return out;
     }
 
-    private static List<String> tvCovers(String term, int season) throws Exception {
+    private static List<String> tvCovers(String term, int season, String want) throws Exception {
         JSONArray results = search(season > 0 ? term + " season " + season : term, "tvShow", "tvSeason");
         List<String> exact = new ArrayList<>();
         List<String> rest = new ArrayList<>();
-        Pattern want = Pattern.compile("(?i)\\bseason\\s*0*" + season + "\\b");
+        Pattern seasonName = Pattern.compile("(?i)\\bseason\\s*0*" + season + "\\b");
         for (int i = 0; i < results.length(); i++) {
             JSONObject r = results.getJSONObject(i);
             String art = big(r.optString("artworkUrl100", ""));
-            if (art == null) continue;
-            if (season > 0 && want.matcher(r.optString("collectionName", "")).find()) exact.add(art);
+            if (art == null || !sameTitle(want, r.optString("collectionName", "") + " " + r.optString("artistName", ""))) continue;
+            if (season > 0 && seasonName.matcher(r.optString("collectionName", "")).find()) exact.add(art);
             else rest.add(art);
         }
         exact.addAll(rest);
@@ -391,6 +418,32 @@ final class Art {
         JSONArray a = new JSONObject(new String(body, "UTF-8").trim()).optJSONArray("results");
         note("Searched " + entity + " (" + country + ") for \"" + term + "\": " + (a == null ? 0 : a.length()) + " found");
         return a == null ? new JSONArray() : a;
+    }
+
+    private static final Set<String> SMALL_WORDS = new HashSet<>(java.util.Arrays.asList(
+            "the", "a", "an", "and", "of", "in", "on", "at", "to", "for", "with", "live"));
+
+    /**
+     * True when the catalogue's name is really this disc: most of the disc's words appear in it.
+     * Words run together on the disc ("Anewdayliveinlasvegas") count when the joined-up name contains them.
+     */
+    static boolean sameTitle(String disc, String found) {
+        String f = plain(found);
+        Set<String> foundWords = new HashSet<>(java.util.Arrays.asList(f.split(" ")));
+        String joined = f.replace(" ", "");
+        int words = 0, hits = 0;
+        for (String w : plain(disc).split(" ")) {
+            if (w.isEmpty() || SMALL_WORDS.contains(w)) continue;
+            words++;
+            if (foundWords.contains(w) || (w.length() >= 4 && joined.contains(w))) hits++;
+        }
+        return words > 0 && hits * 10 >= words * 7;
+    }
+
+    /** "Céline Dion: A New Day..." becomes "celine dion a new day". */
+    private static String plain(String s) {
+        String n = java.text.Normalizer.normalize(s, java.text.Normalizer.Form.NFD).replaceAll("\\p{M}+", "");
+        return n.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", " ").trim();
     }
 
     /** iTunes artwork URLs name their size; asking for 600 gives a sharp poster. */

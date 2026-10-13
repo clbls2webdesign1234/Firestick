@@ -119,6 +119,11 @@ Each tile shows the disc's cover when one can be found:
    Covers are saved on the stick, so each is fetched once. Names with a year
    (`The Matrix 1999`) or a season (`Friends Season 3 Disc 2`) match best.
 
+A catalogue cover is used only when its name matches the disc's, so some discs show no cover
+rather than a wrong one. For those, choose the cover in Disc Shelf for Windows (right-click the
+tile, **Choose cover…**, paste a picture copied from Google). It is saved beside the disc on the
+share, and the Fire TV picks it up on the next Rescan.
+
 Hold Select (or press Menu) on a tile for **Try a different cover** or **Show no cover**.
 Online lookup can be turned off under Settings.
 

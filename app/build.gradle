@@ -49,6 +49,14 @@ android {
         targetCompatibility JavaVersion.VERSION_11
     }
 
+    packaging {
+        resources {
+            // Duplicates inside the share library's encryption package.
+            excludes += ['META-INF/versions/9/OSGI-INF/MANIFEST.MF', 'META-INF/DEPENDENCIES',
+                         'META-INF/LICENSE*', 'META-INF/NOTICE*', 'META-INF/*.SF', 'META-INF/*.DSA', 'META-INF/*.RSA']
+        }
+    }
+
     lint {
         checkReleaseBuilds false
         abortOnError false
@@ -58,4 +66,6 @@ android {
 dependencies {
     // The VLC playback engine: reads DVD and Blu-ray images, menus included.
     implementation 'org.videolan.android:libvlc-all:3.6.2'
+    // Reads cover pictures saved beside the discs on a network share.
+    implementation 'eu.agno3.jcifs:jcifs-ng:2.1.10'
 }
