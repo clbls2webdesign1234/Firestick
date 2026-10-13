@@ -207,7 +207,7 @@ final class Art {
     }
 
     private static File file(Context c, Disc d) {
-        return new File(new File(c.getFilesDir(), "art"), d.id + ".v2.jpg");
+        return new File(new File(c.getFilesDir(), "art"), d.id + ".v3.jpg");
     }
 
     // ---- Background work -------------------------------------------------------------
@@ -319,7 +319,9 @@ final class Art {
         note("Search words: \"" + t + "\"" + (year > 0 ? ", year " + year : "") + (season > 0 ? ", season " + season : ""));
         if (t.length() < 2) return null;
 
-        List<String> covers = season > 0 ? tvCovers(t, season, t) : movieCovers(t, year, t);
+        /* Wikipedia first: it has the real poster or DVD cover for most films, series and concerts. */
+        List<String> covers = wikiCovers(t, year, season);
+        if (covers.isEmpty()) covers = season > 0 ? tvCovers(t, season, t) : movieCovers(t, year, t);
         if (covers.isEmpty()) covers = season > 0 ? movieCovers(t, year, t) : tvCovers(t, 0, t);
         /* Concerts and music DVDs are in the music catalogue. */
         if (covers.isEmpty()) covers = albumCovers(t, t);
@@ -377,6 +379,43 @@ final class Art {
         }
         exact.addAll(rest);
         return exact;
+    }
+
+    /** Covers from the pictures of Wikipedia articles whose name matches the disc. */
+    private static List<String> wikiCovers(String term, int year, int season) throws Exception {
+        String q = term + (season > 0 ? " season " + season : "") + (year > 0 ? " " + year : "");
+        long wait = lastLookup + LOOKUP_GAP_MS - System.currentTimeMillis();
+        if (wait > 0) Thread.sleep(wait);
+        lastLookup = System.currentTimeMillis();
+        String url = "https://en.wikipedia.org/w/api.php?action=query&format=json&formatversion=2"
+                + "&generator=search&gsrlimit=6&prop=pageimages%7Cdescription&piprop=thumbnail&pithumbsize=600"
+                + "&pilicense=any&gsrsearch=" + Uri.encode(q);
+        byte[] body = fetch(url);
+        List<String> close = new ArrayList<>();
+        List<String> rest = new ArrayList<>();
+        JSONObject query = body == null ? null : new JSONObject(new String(body, "UTF-8").trim()).optJSONObject("query");
+        JSONArray pages = query == null ? null : query.optJSONArray("pages");
+        int n = pages == null ? 0 : pages.length();
+        /* The search's own order is in "index"; the list itself is not sorted. */
+        JSONObject[] ordered = new JSONObject[n];
+        for (int i = 0; i < n; i++) ordered[i] = pages.getJSONObject(i);
+        java.util.Arrays.sort(ordered, new java.util.Comparator<JSONObject>() {
+            @Override
+            public int compare(JSONObject a, JSONObject b) {
+                return a.optInt("index", 99) - b.optInt("index", 99);
+            }
+        });
+        for (JSONObject p : ordered) {
+            JSONObject thumb = p.optJSONObject("thumbnail");
+            if (thumb == null || thumb.optString("source", "").isEmpty()) continue;
+            String name = p.optString("title", "") + " " + p.optString("description", "");
+            if (!sameTitle(term, name)) continue;
+            if (year > 0 && name.contains(String.valueOf(year))) close.add(thumb.getString("source"));
+            else rest.add(thumb.getString("source"));
+        }
+        close.addAll(rest);
+        note("Searched Wikipedia for \"" + q + "\": " + close.size() + " matching");
+        return close;
     }
 
     private static JSONArray search(String term, String media, String entity) throws Exception {
@@ -446,7 +485,7 @@ final class Art {
             HttpURLConnection con = (HttpURLConnection) new URL(url).openConnection();
             con.setConnectTimeout(10000);
             con.setReadTimeout(15000);
-            con.setRequestProperty("User-Agent", "DiscShelf");
+            con.setRequestProperty("User-Agent", "DiscShelf/1.0 (https://github.com/clbls2webdesign1234/Firestick)");
             try {
                 int code = con.getResponseCode();
                 if (code != 200) note("  HTTP " + code);

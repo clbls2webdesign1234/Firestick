@@ -146,7 +146,7 @@ final class Art {
         }
         if (saved == null) {
             dir.mkdirs();
-            if (!ImageIO.write(rgb, "jpg", new File(dir, key + ".v2.jpg"))) throw new IOException("the picture could not be saved");
+            if (!ImageIO.write(rgb, "jpg", new File(dir, key + ".v3.jpg"))) throw new IOException("the picture could not be saved");
         }
         P.remove("none_" + key);
         memory.put(key, shrink(rgb));
@@ -175,7 +175,7 @@ final class Art {
     }
 
     private void forget(String key) {
-        new File(dir, key + ".v2.jpg").delete();
+        new File(dir, key + ".v3.jpg").delete();
         memory.remove(key);
         failed.remove(key);
         changed.run();
@@ -200,7 +200,7 @@ final class Art {
         File own = besideDisc(d);
         if (own != null) return decode(own);
 
-        File cached = new File(dir, key + ".v2.jpg");
+        File cached = new File(dir, key + ".v3.jpg");
         if (cached.isFile()) return decode(cached);
 
         if (!online()) return null;
@@ -296,7 +296,9 @@ final class Art {
         t = NOISE.matcher(t).replaceAll(" ").replaceAll("[()]", " ").replaceAll("\\s+", " ").trim();
         if (t.length() < 2) return null;
 
-        List<String> covers = season > 0 ? tvCovers(t, season, t) : movieCovers(t, year, t);
+        /* Wikipedia first: it has the real poster or DVD cover for most films, series and concerts. */
+        List<String> covers = wikiCovers(t, year, season);
+        if (covers.isEmpty()) covers = season > 0 ? tvCovers(t, season, t) : movieCovers(t, year, t);
         if (covers.isEmpty()) covers = season > 0 ? movieCovers(t, year, t) : tvCovers(t, 0, t);
         /* Concerts and music DVDs are in the music catalogue. */
         if (covers.isEmpty()) covers = albumCovers(t, t);
@@ -354,6 +356,42 @@ final class Art {
         }
         exact.addAll(rest);
         return exact;
+    }
+
+    /** Covers from the pictures of Wikipedia articles whose name matches the disc. */
+    private List<String> wikiCovers(String term, int year, int season) throws Exception {
+        String q = term + (season > 0 ? " season " + season : "") + (year > 0 ? " " + year : "");
+        long wait = lastLookup + LOOKUP_GAP_MS - System.currentTimeMillis();
+        if (wait > 0) Thread.sleep(wait);
+        lastLookup = System.currentTimeMillis();
+        String url = "https://en.wikipedia.org/w/api.php?action=query&format=json&formatversion=2"
+                + "&generator=search&gsrlimit=6&prop=pageimages%7Cdescription&piprop=thumbnail&pithumbsize=600"
+                + "&pilicense=any&gsrsearch=" + URLEncoder.encode(q, StandardCharsets.UTF_8);
+        byte[] body = fetch(url);
+        List<String> close = new ArrayList<>();
+        List<String> rest = new ArrayList<>();
+        JSONObject query = body == null ? null : new JSONObject(new String(body, "UTF-8").trim()).optJSONObject("query");
+        JSONArray pages = query == null ? null : query.optJSONArray("pages");
+        int n = pages == null ? 0 : pages.length();
+        /* The search's own order is in "index"; the list itself is not sorted. */
+        JSONObject[] ordered = new JSONObject[n];
+        for (int i = 0; i < n; i++) ordered[i] = pages.getJSONObject(i);
+        java.util.Arrays.sort(ordered, new java.util.Comparator<JSONObject>() {
+            @Override
+            public int compare(JSONObject a, JSONObject b) {
+                return a.optInt("index", 99) - b.optInt("index", 99);
+            }
+        });
+        for (JSONObject p : ordered) {
+            JSONObject thumb = p.optJSONObject("thumbnail");
+            if (thumb == null || thumb.optString("source", "").isEmpty()) continue;
+            String name = p.optString("title", "") + " " + p.optString("description", "");
+            if (!sameTitle(term, name)) continue;
+            if (year > 0 && name.contains(String.valueOf(year))) close.add(thumb.getString("source"));
+            else rest.add(thumb.getString("source"));
+        }
+        close.addAll(rest);
+        return close;
     }
 
     private JSONArray search(String term, String media, String entity) throws Exception {
@@ -421,7 +459,7 @@ final class Art {
     private byte[] fetch(String url) throws Exception {
         for (int attempt = 0; attempt < 2; attempt++) {
             HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                    .timeout(Duration.ofSeconds(15)).header("User-Agent", "DiscShelf").build();
+                    .timeout(Duration.ofSeconds(15)).header("User-Agent", "DiscShelf/1.0 (https://github.com/clbls2webdesign1234/Firestick)").build();
             HttpResponse<byte[]> res = http.send(req, HttpResponse.BodyHandlers.ofByteArray());
             int code = res.statusCode();
             if (code == 403 || code == 429) {

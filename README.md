@@ -115,7 +115,7 @@ Each tile shows the disc's cover when one can be found:
 
 1. A picture saved beside the disc on a USB drive or the Fire TV: `The Matrix.jpg` next to
    `The Matrix.iso`, or `cover.jpg`, `folder.jpg`, `poster.jpg` or `front.jpg` inside a disc folder.
-2. Otherwise the title is looked up in Apple's iTunes film and TV catalogue (no account needed).
+2. Otherwise the title is looked up on Wikipedia, then in Apple's iTunes catalogue (no account needed).
    Covers are saved on the stick, so each is fetched once. Names with a year
    (`The Matrix 1999`) or a season (`Friends Season 3 Disc 2`) match best.
 
