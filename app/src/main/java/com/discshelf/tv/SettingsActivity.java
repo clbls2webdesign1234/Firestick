@@ -109,7 +109,7 @@ public class SettingsActivity extends Activity {
                 "Looks titles up in Apple's iTunes film and TV catalogue. A picture saved next to a disc on USB is used first",
                 null, null, "true"));
         items.add(new Item(TEST, "test_art", "Test cover lookup",
-                "Looks up the first disc on the shelf and shows each step", null, null, ""));
+                "Looks up the first three discs on the shelf and shows each step", null, null, ""));
         items.add(new Item(INFO, "about", "About", null, null, null, ""));
 
         ListView list = (ListView) findViewById(R.id.list);
@@ -237,9 +237,9 @@ public class SettingsActivity extends Activity {
             return;
         }
         final AlertDialog wait = new AlertDialog.Builder(this).setTitle("Test cover lookup")
-                .setMessage("Looking up " + discs.get(0).title + "…")
+                .setMessage("Looking up the first " + Math.min(3, discs.size()) + " discs…")
                 .setPositiveButton("Close", null).show();
-        Art.test(this, discs.get(0), new Art.TestResult() {
+        Art.test(this, discs.subList(0, Math.min(3, discs.size())), new Art.TestResult() {
             @Override
             public void done(String report) {
                 if (isFinishing()) return;

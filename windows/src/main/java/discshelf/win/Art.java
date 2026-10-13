@@ -226,6 +226,8 @@ final class Art {
     /** The URL of the n-th best cover for this title, or null. */
     private String lookup(String title, int n) throws Exception {
         String t = title.replaceAll("\\[[^\\]]*\\]", " ").replace('-', ' ');
+        /* "ANewDayLive" becomes "A New Day Live". */
+        t = t.replaceAll("([a-z])([A-Z])", "$1 $2");
         int year = 0;
         int latest = Calendar.getInstance().get(Calendar.YEAR) + 1;
         Matcher y = YEAR.matcher(t);
@@ -247,6 +249,16 @@ final class Art {
 
         List<String> covers = season > 0 ? tvCovers(t, season) : movieCovers(t, year);
         if (covers.isEmpty()) covers = season > 0 ? movieCovers(t, year) : tvCovers(t, 0);
+        /* Concerts and music DVDs are in the music catalogue. */
+        if (covers.isEmpty()) covers = albumCovers(t);
+        /* Names with words run together ("CELINE DION Anewdayliveinlasvegas") match on their first words. */
+        String[] words = t.split(" ");
+        for (int keep = Math.min(words.length - 1, 3); covers.isEmpty() && keep >= 2; keep--) {
+            StringBuilder shorter = new StringBuilder();
+            for (int i = 0; i < keep; i++) shorter.append(i == 0 ? "" : " ").append(words[i]);
+            covers = movieCovers(shorter.toString(), year);
+            if (covers.isEmpty()) covers = albumCovers(shorter.toString());
+        }
         if (covers.isEmpty()) return null;
         return covers.get(n % covers.size());
     }
@@ -265,6 +277,16 @@ final class Art {
         }
         close.addAll(rest);
         return close;
+    }
+
+    private List<String> albumCovers(String term) throws Exception {
+        JSONArray results = search(term, "music", "album");
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < results.length(); i++) {
+            String art = big(results.getJSONObject(i).optString("artworkUrl100", ""));
+            if (art != null) out.add(art);
+        }
+        return out;
     }
 
     private List<String> tvCovers(String term, int season) throws Exception {

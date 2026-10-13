@@ -77,34 +77,36 @@ final class Art {
     }
 
     /** Settings, "Test cover lookup": looks up one disc step by step and reports what happened. */
-    static void test(Context c, final Disc d, final TestResult result) {
+    static void test(Context c, final List<Disc> discs, final TestResult result) {
         final Context app = c.getApplicationContext();
         worker.execute(new Runnable() {
             @Override
             public void run() {
                 StringBuilder t = new StringBuilder();
                 trace = t;
-                try {
-                    note("Disc: " + d.title);
-                    note("Device country: " + Locale.getDefault().getCountry());
-                    String url = lookup(d.title, sp(app).getInt("n_" + d.id, 0));
-                    if (url == null) {
-                        note("No match in the catalogue.");
-                    } else {
-                        note("Cover: " + url);
-                        byte[] img = fetch(url);
-                        note("Downloaded " + (img == null ? 0 : img.length) + " bytes");
-                        if (img != null) {
-                            Bitmap b = BitmapFactory.decodeByteArray(img, 0, img.length);
-                            note(b == null ? "The picture could not be read." : "Picture " + b.getWidth() + " x " + b.getHeight() + ": OK");
+                note("Device country: " + Locale.getDefault().getCountry());
+                for (Disc d : discs) {
+                    try {
+                        note("");
+                        note("Disc: " + d.title);
+                        String url = lookup(d.title, sp(app).getInt("n_" + d.id, 0));
+                        if (url == null) {
+                            note("No match in the catalogue.");
+                        } else {
+                            note("Cover: " + url);
+                            byte[] img = fetch(url);
+                            note("Downloaded " + (img == null ? 0 : img.length) + " bytes");
+                            if (img != null) {
+                                Bitmap b = BitmapFactory.decodeByteArray(img, 0, img.length);
+                                note(b == null ? "The picture could not be read." : "Picture " + b.getWidth() + " x " + b.getHeight() + ": OK");
+                            }
                         }
+                    } catch (Throwable e) {
+                        note("Failed: " + e.getClass().getName() + ": " + e.getMessage());
+                        if (e.getCause() != null) note("Cause: " + e.getCause());
                     }
-                } catch (Throwable e) {
-                    note("Failed: " + e.getClass().getName() + ": " + e.getMessage());
-                    if (e.getCause() != null) note("Cause: " + e.getCause());
-                } finally {
-                    trace = null;
                 }
+                trace = null;
                 final String report = t.toString().trim();
                 main.post(new Runnable() {
                     @Override
@@ -290,6 +292,8 @@ final class Art {
     /** The URL of the n-th best cover for this title, or null. */
     private static String lookup(String title, int n) throws Exception {
         String t = title.replaceAll("\\[[^\\]]*\\]", " ").replace('-', ' ');
+        /* "ANewDayLive" becomes "A New Day Live". */
+        t = t.replaceAll("([a-z])([A-Z])", "$1 $2");
         int year = 0;
         Matcher y = YEAR.matcher(t);
         int latest = java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) + 1;
@@ -312,6 +316,16 @@ final class Art {
 
         List<String> covers = season > 0 ? tvCovers(t, season) : movieCovers(t, year);
         if (covers.isEmpty()) covers = season > 0 ? movieCovers(t, year) : tvCovers(t, 0);
+        /* Concerts and music DVDs are in the music catalogue. */
+        if (covers.isEmpty()) covers = albumCovers(t);
+        /* Names with words run together ("CELINE DION Anewdayliveinlasvegas") match on their first words. */
+        String[] words = t.split(" ");
+        for (int keep = Math.min(words.length - 1, 3); covers.isEmpty() && keep >= 2; keep--) {
+            StringBuilder shorter = new StringBuilder();
+            for (int i = 0; i < keep; i++) shorter.append(i == 0 ? "" : " ").append(words[i]);
+            covers = movieCovers(shorter.toString(), year);
+            if (covers.isEmpty()) covers = albumCovers(shorter.toString());
+        }
         if (covers.isEmpty()) return null;
         return covers.get(n % covers.size());
     }
@@ -330,6 +344,16 @@ final class Art {
         }
         close.addAll(rest);
         return close;
+    }
+
+    private static List<String> albumCovers(String term) throws Exception {
+        JSONArray results = search(term, "music", "album");
+        List<String> out = new ArrayList<>();
+        for (int i = 0; i < results.length(); i++) {
+            String art = big(results.getJSONObject(i).optString("artworkUrl100", ""));
+            if (art != null) out.add(art);
+        }
+        return out;
     }
 
     private static List<String> tvCovers(String term, int season) throws Exception {
@@ -362,11 +386,10 @@ final class Art {
         lastLookup = System.currentTimeMillis();
         String url = "https://itunes.apple.com/search?media=" + media + "&entity=" + entity
                 + "&limit=10&country=" + country.toLowerCase(Locale.US) + "&term=" + Uri.encode(term);
-        note("Asking: " + url);
         byte[] body = fetch(url);
         if (body == null) return new JSONArray();
         JSONArray a = new JSONObject(new String(body, "UTF-8").trim()).optJSONArray("results");
-        note("  " + (a == null ? 0 : a.length()) + " results");
+        note("Searched " + entity + " (" + country + ") for \"" + term + "\": " + (a == null ? 0 : a.length()) + " found");
         return a == null ? new JSONArray() : a;
     }
 
@@ -393,7 +416,7 @@ final class Art {
             con.setRequestProperty("User-Agent", "DiscShelf");
             try {
                 int code = con.getResponseCode();
-                note("  HTTP " + code);
+                if (code != 200) note("  HTTP " + code);
                 if (code == 403 || code == 429) {
                     /* Asked too often: wait a minute and try once more. */
                     Thread.sleep(60000);
