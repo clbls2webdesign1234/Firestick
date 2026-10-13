@@ -64,6 +64,57 @@ final class Art {
     /** Why the last cover could not be fetched, shown on the shelf; null once one arrives. */
     static volatile String problem;
     static volatile int found;
+    /** While a test runs, every step is written here for the owner to read. */
+    private static volatile StringBuilder trace;
+
+    private static void note(String line) {
+        StringBuilder t = trace;
+        if (t != null) t.append(line).append('\n');
+    }
+
+    interface TestResult {
+        void done(String report);
+    }
+
+    /** Settings, "Test cover lookup": looks up one disc step by step and reports what happened. */
+    static void test(Context c, final Disc d, final TestResult result) {
+        final Context app = c.getApplicationContext();
+        worker.execute(new Runnable() {
+            @Override
+            public void run() {
+                StringBuilder t = new StringBuilder();
+                trace = t;
+                try {
+                    note("Disc: " + d.title);
+                    note("Device country: " + Locale.getDefault().getCountry());
+                    String url = lookup(d.title, sp(app).getInt("n_" + d.id, 0));
+                    if (url == null) {
+                        note("No match in the catalogue.");
+                    } else {
+                        note("Cover: " + url);
+                        byte[] img = fetch(url);
+                        note("Downloaded " + (img == null ? 0 : img.length) + " bytes");
+                        if (img != null) {
+                            Bitmap b = BitmapFactory.decodeByteArray(img, 0, img.length);
+                            note(b == null ? "The picture could not be read." : "Picture " + b.getWidth() + " x " + b.getHeight() + ": OK");
+                        }
+                    }
+                } catch (Throwable e) {
+                    note("Failed: " + e.getClass().getName() + ": " + e.getMessage());
+                    if (e.getCause() != null) note("Cause: " + e.getCause());
+                } finally {
+                    trace = null;
+                }
+                final String report = t.toString().trim();
+                main.post(new Runnable() {
+                    @Override
+                    public void run() {
+                        result.done(report);
+                    }
+                });
+            }
+        });
+    }
 
     static void setListener(Listener l) {
         listener = l;
@@ -256,6 +307,7 @@ final class Art {
             t = t.substring(0, s.start());
         }
         t = NOISE.matcher(t).replaceAll(" ").replaceAll("[()]", " ").replaceAll("\\s+", " ").trim();
+        note("Search words: \"" + t + "\"" + (year > 0 ? ", year " + year : "") + (season > 0 ? ", season " + season : ""));
         if (t.length() < 2) return null;
 
         List<String> covers = season > 0 ? tvCovers(t, season) : movieCovers(t, year);
@@ -310,9 +362,11 @@ final class Art {
         lastLookup = System.currentTimeMillis();
         String url = "https://itunes.apple.com/search?media=" + media + "&entity=" + entity
                 + "&limit=10&country=" + country.toLowerCase(Locale.US) + "&term=" + Uri.encode(term);
+        note("Asking: " + url);
         byte[] body = fetch(url);
         if (body == null) return new JSONArray();
-        JSONArray a = new JSONObject(new String(body, "UTF-8")).optJSONArray("results");
+        JSONArray a = new JSONObject(new String(body, "UTF-8").trim()).optJSONArray("results");
+        note("  " + (a == null ? 0 : a.length()) + " results");
         return a == null ? new JSONArray() : a;
     }
 
@@ -339,6 +393,7 @@ final class Art {
             con.setRequestProperty("User-Agent", "DiscShelf");
             try {
                 int code = con.getResponseCode();
+                note("  HTTP " + code);
                 if (code == 403 || code == 429) {
                     /* Asked too often: wait a minute and try once more. */
                     Thread.sleep(60000);

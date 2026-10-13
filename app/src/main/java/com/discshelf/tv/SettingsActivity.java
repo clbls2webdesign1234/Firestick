@@ -28,6 +28,7 @@ public class SettingsActivity extends Activity {
     private static final int MULTI = 2;
     private static final int NUMBER = 3;
     private static final int INFO = 4;
+    private static final int TEST = 5;
 
     private static final String[] LANG_CODES = {"", "en", "fr", "de", "es", "it", "nl", "pt", "sv", "da", "no", "fi",
             "pl", "ru", "el", "tr", "ja", "ko", "zh", "hi", "ar", "he"};
@@ -107,6 +108,8 @@ public class SettingsActivity extends Activity {
         items.add(new Item(TOGGLE, Prefs.ART_ONLINE, "Find cover art online",
                 "Looks titles up in Apple's iTunes film and TV catalogue. A picture saved next to a disc on USB is used first",
                 null, null, "true"));
+        items.add(new Item(TEST, "test_art", "Test cover lookup",
+                "Looks up the first disc on the shelf and shows each step", null, null, ""));
         items.add(new Item(INFO, "about", "About", null, null, null, ""));
 
         ListView list = (ListView) findViewById(R.id.list);
@@ -138,6 +141,8 @@ public class SettingsActivity extends Activity {
             }
             case INFO:
                 return about();
+            case TEST:
+                return "Press to run";
             default:
                 return labelFor(it, prefs.getString(it.key, it.fallback));
         }
@@ -170,6 +175,10 @@ public class SettingsActivity extends Activity {
 
     private void change(final Item it) {
         if (it.type == INFO) return;
+        if (it.type == TEST) {
+            testArt();
+            return;
+        }
         if (it.type == TOGGLE) {
             boolean now = prefs.getBoolean(it.key, Boolean.parseBoolean(it.fallback));
             prefs.edit().putBoolean(it.key, !now).apply();
@@ -218,6 +227,25 @@ public class SettingsActivity extends Activity {
                     }
                 })
                 .show();
+    }
+
+    private void testArt() {
+        java.util.List<Disc> discs = Store.discs(this);
+        if (discs.isEmpty()) {
+            new AlertDialog.Builder(this).setTitle("Test cover lookup")
+                    .setMessage("There are no discs on the shelf yet.").setPositiveButton("OK", null).show();
+            return;
+        }
+        final AlertDialog wait = new AlertDialog.Builder(this).setTitle("Test cover lookup")
+                .setMessage("Looking up " + discs.get(0).title + "…")
+                .setPositiveButton("Close", null).show();
+        Art.test(this, discs.get(0), new Art.TestResult() {
+            @Override
+            public void done(String report) {
+                if (isFinishing()) return;
+                wait.setMessage(report);
+            }
+        });
     }
 
     private final class RowAdapter extends BaseAdapter {
