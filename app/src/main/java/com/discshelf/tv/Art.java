@@ -84,7 +84,12 @@ final class Art {
             public void run() {
                 StringBuilder t = new StringBuilder();
                 trace = t;
-                note("Device country: " + Locale.getDefault().getCountry());
+                String version = "?";
+                try {
+                    version = app.getPackageManager().getPackageInfo(app.getPackageName(), 0).versionName;
+                } catch (Exception ignored) {
+                }
+                note("Disc Shelf " + version + ", device country: " + Locale.getDefault().getCountry());
                 for (Disc d : discs) {
                     try {
                         note("");
@@ -407,9 +412,11 @@ final class Art {
         });
         for (JSONObject p : ordered) {
             JSONObject thumb = p.optJSONObject("thumbnail");
-            if (thumb == null || thumb.optString("source", "").isEmpty()) continue;
             String name = p.optString("title", "") + " " + p.optString("description", "");
-            if (!sameTitle(term, name)) continue;
+            boolean picture = thumb != null && !thumb.optString("source", "").isEmpty();
+            boolean same = sameTitle(term, name);
+            note("  " + p.optString("title", "") + (picture ? "" : " (no picture)") + (same ? "" : " (name differs)"));
+            if (!picture || !same) continue;
             if (year > 0 && name.contains(String.valueOf(year))) close.add(thumb.getString("source"));
             else rest.add(thumb.getString("source"));
         }

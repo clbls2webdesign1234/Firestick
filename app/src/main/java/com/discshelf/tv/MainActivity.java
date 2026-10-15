@@ -252,7 +252,8 @@ public class MainActivity extends Activity implements Scanner.Listener, Art.List
     }
 
     private void discOptions(final Disc d) {
-        String[] items = {"Play from the beginning", "Forget where I stopped", "Try a different cover", "Show no cover"};
+        String[] items = {"Play from the beginning", "Forget where I stopped", "Try a different cover", "Show no cover",
+                "Test cover lookup"};
         new AlertDialog.Builder(this)
                 .setTitle(d.title)
                 .setItems(items, new DialogInterface.OnClickListener() {
@@ -266,13 +267,29 @@ public class MainActivity extends Activity implements Scanner.Listener, Art.List
                         } else if (which == 2) {
                             Art.next(MainActivity.this, d);
                             show(discs);
-                        } else {
+                        } else if (which == 3) {
                             Art.hide(MainActivity.this, d);
                             show(discs);
+                        } else {
+                            testCover(d);
                         }
                     }
                 })
                 .show();
+    }
+
+    /** Looks this one disc up step by step and shows what happened, for finding why a cover is missing. */
+    private void testCover(Disc d) {
+        final AlertDialog wait = new AlertDialog.Builder(this).setTitle("Test cover lookup")
+                .setMessage("Looking up " + d.title + "…")
+                .setPositiveButton("Close", null).show();
+        Art.test(this, java.util.Collections.singletonList(d), new Art.TestResult() {
+            @Override
+            public void done(String report) {
+                if (isFinishing()) return;
+                wait.setMessage(report);
+            }
+        });
     }
 
     @Override
