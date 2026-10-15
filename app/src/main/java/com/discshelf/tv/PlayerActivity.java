@@ -309,6 +309,15 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         ArrayList<String> options = new ArrayList<>();
         if (!Prefs.audioLang(this).isEmpty()) options.add("--audio-language=" + Prefs.audioLang(this));
         if (!Prefs.subLang(this).isEmpty()) options.add("--sub-language=" + Prefs.subLang(this));
+        if (!disc.isLocalPath()) {
+            /*
+             * Read ahead from the share in large pieces. The engine's default asks for 16 KB at a
+             * time, and over Wi-Fi each request waits a round trip, so a DVD could not keep up even
+             * on a fast, strong connection. 1 MB reads into a 32 MB read-ahead buffer fix that.
+             */
+            options.add("--prefetch-read-size=1048576");
+            options.add("--prefetch-buffer-size=32768");
+        }
         if (software) {
             options.add("--deinterlace=-1");
             options.add("--deinterlace-mode=yadif");
