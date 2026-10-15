@@ -70,4 +70,54 @@ final class Settings {
     static void setStartFullScreen(boolean on) {
         P.putBoolean("fullScreen", on);
     }
+
+    /** The shelf fills the screen with large tiles and is run with arrows, OK and Back, like a TV app. */
+    static boolean tvMode() {
+        return P.getBoolean("tvMode", true);
+    }
+
+    static void setTvMode(boolean on) {
+        P.putBoolean("tvMode", on);
+    }
+
+    /** A remote-control web page for phones on the home network. */
+    static boolean phoneRemote() {
+        return P.getBoolean("phoneRemote", true);
+    }
+
+    static void setPhoneRemote(boolean on) {
+        P.putBoolean("phoneRemote", on);
+    }
+
+    private static final String RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
+
+    /** The installed DiscShelf.exe, or null when run some other way (for example from an IDE). */
+    static String exe() {
+        String p = System.getProperty("jpackage.app-path");
+        return p != null && !p.isEmpty() ? p : null;
+    }
+
+    /** Whether Windows opens Disc Shelf when the PC starts, so the TV needs no keyboard or mouse. */
+    static boolean startWithWindows() {
+        try {
+            Process p = new ProcessBuilder("reg", "query", RUN_KEY, "/v", "DiscShelf").redirectErrorStream(true).start();
+            p.getInputStream().readAllBytes();
+            return p.waitFor() == 0;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    static void setStartWithWindows(boolean on) {
+        String exe = exe();
+        try {
+            ProcessBuilder pb = on && exe != null
+                    ? new ProcessBuilder("reg", "add", RUN_KEY, "/v", "DiscShelf", "/t", "REG_SZ", "/d", "\"" + exe + "\"", "/f")
+                    : new ProcessBuilder("reg", "delete", RUN_KEY, "/v", "DiscShelf", "/f");
+            Process p = pb.redirectErrorStream(true).start();
+            p.getInputStream().readAllBytes();
+            p.waitFor();
+        } catch (Exception ignored) {
+        }
+    }
 }

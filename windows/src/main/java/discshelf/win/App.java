@@ -34,6 +34,7 @@ public final class App {
             System.exit(1);
         }
         Library library = new Library();
+        Remote.start();
         SwingUtilities.invokeLater(() -> new MainWindow(library).setVisible(true));
     }
 }

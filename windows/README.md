@@ -44,6 +44,29 @@ in your browser and choose Copy image, then press Paste picture. It is saved bes
 Right-click a tile for **Try a different cover** or **Show no cover**. Hover over a tile to see
 its name. Online lookup can be turned off under **Settings**.
 
+## Using it like a TV app
+
+TV mode is on by default: the shelf fills the screen with large tiles, and everything works
+with arrows, OK, Back and a Menu button, so no keyboard or mouse is needed.
+
+- **Arrows** move between discs, **OK** (Enter) plays. A disc you stopped part way asks
+  whether to resume, as a short list.
+- **Menu** (the context-menu key) opens options for the highlighted disc, plus Rescan,
+  Sources, Settings, the phone remote address, window mode and Quit.
+- While a disc plays: arrows and OK work the disc's menu, **Menu** opens soundtrack,
+  subtitles, chapters and titles, **Back** (Esc) stops and returns to the shelf.
+  Play/pause, next and previous chapter, and stop on a media remote work too.
+
+**Remotes.** A Fire TV remote only pairs with a Fire TV, so it can't run the PC. Two choices:
+
+- **Your phone.** On a phone or tablet on the same Wi-Fi, open the address shown under
+  Menu, Phone remote (for example `http://192.168.1.20:8642`) and add it to the home screen.
+  Allow Disc Shelf through Windows Firewall on private networks when Windows asks.
+- **A PC media remote.** Any USB or Bluetooth remote that acts as a keyboard, with arrows,
+  OK, Back, a menu key and play/pause, works. Many "air mouse" remotes with a USB dongle do.
+
+Settings has **Open Disc Shelf when Windows starts**, so the PC goes straight to the shelf.
+
 ## While a disc plays
 
 | Key | Does |

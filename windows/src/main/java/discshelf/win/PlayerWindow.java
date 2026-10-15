@@ -44,6 +44,7 @@ import java.util.Locale;
  *   Space pause · Left/Right back 10 s / forward 30 s (move in a disc menu)
  *   Up/Down/Enter move and choose in a disc menu · Page Up/Down previous/next chapter
  *   M disc menu · A soundtrack · S subtitles · C chapters · T titles · F full screen · Esc back
+ *   Menu (context) key: options · J/L back 10 s / forward 30 s. Remote media keys arrive through Remote.
  */
 final class PlayerWindow extends JFrame {
     private final Library library;
@@ -492,6 +493,8 @@ final class PlayerWindow extends JFrame {
 
     private boolean key(KeyEvent e) {
         if (e.getID() != KeyEvent.KEY_PRESSED || !isActive()) return false;
+        /* While one of the pop-up lists is open, the arrows, OK and Back belong to it. */
+        if (javax.swing.MenuSelectionManager.defaultManager().getSelectedPath().length > 0) return false;
         boolean menu = inMenu();
         switch (e.getKeyCode()) {
             case KeyEvent.VK_SPACE:
@@ -512,7 +515,21 @@ final class PlayerWindow extends JFrame {
                 else player.controls().skipTime(30_000);
                 break;
             case KeyEvent.VK_ENTER:
-                player.menu().activate();
+                if (menuTitle >= 0) player.menu().activate();
+                else player.controls().pause();
+                break;
+            case KeyEvent.VK_CONTEXT_MENU:
+                setControlsVisible(true);
+                JPopupMenu options = optionsMenu();
+                MainWindow.showSelected(options, component,
+                        Math.max(0, (component.getWidth() - options.getPreferredSize().width) / 2),
+                        Math.max(0, (component.getHeight() - options.getPreferredSize().height) / 2));
+                return true;
+            case KeyEvent.VK_J:
+                player.controls().skipTime(-10_000);
+                break;
+            case KeyEvent.VK_L:
+                player.controls().skipTime(30_000);
                 break;
             case KeyEvent.VK_PAGE_UP:
                 player.chapters().previous();
@@ -542,7 +559,7 @@ final class PlayerWindow extends JFrame {
                 break;
             case KeyEvent.VK_ESCAPE:
             case KeyEvent.VK_BACK_SPACE:
-                if (player.fullScreen().isFullScreen() && e.getKeyCode() == KeyEvent.VK_ESCAPE) {
+                if (!Settings.tvMode() && player.fullScreen().isFullScreen() && e.getKeyCode() == KeyEvent.VK_ESCAPE) {
                     player.fullScreen().set(false);
                     setControlsVisible(true);
                 } else {
@@ -558,7 +575,7 @@ final class PlayerWindow extends JFrame {
 
     private void showAt(JPopupMenu m) {
         setControlsVisible(true);
-        m.show(controls, 40, -m.getPreferredSize().height);
+        MainWindow.showSelected(m, controls, 40, -m.getPreferredSize().height);
     }
 
     static String time(long ms) {

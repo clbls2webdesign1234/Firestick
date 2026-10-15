@@ -58,8 +58,8 @@ final class MainWindow extends JFrame {
             {new Color(0x214540), new Color(0x152B28)}, {new Color(0x4A3324), new Color(0x2B1F17)},
             {new Color(0x46283A), new Color(0x291923)}, {new Color(0x2D3F2A), new Color(0x1B2619)}};
     private static final Color ACCENT = new Color(0x4FA3FF);
-    /** Poster-shaped tiles, so covers show whole. */
-    private static final int TILE_W = 186, TILE_H = 286;
+    /** Poster-shaped tiles, so covers show whole; larger in TV mode, read from across the room. */
+    private final int TILE_W = Settings.tvMode() ? 250 : 186, TILE_H = Settings.tvMode() ? 384 : 286;
 
     private final Library library;
     private final DefaultListModel<Disc> model = new DefaultListModel<>();
@@ -82,6 +82,18 @@ final class MainWindow extends JFrame {
         setMinimumSize(new Dimension(900, 600));
         setSize(1300, 820);
         setLocationRelativeTo(null);
+        if (Settings.tvMode()) fillScreen(true);
+        addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override
+            public void windowOpened(java.awt.event.WindowEvent e) {
+                grid.requestFocusInWindow();
+            }
+
+            @Override
+            public void windowActivated(java.awt.event.WindowEvent e) {
+                grid.requestFocusInWindow();
+            }
+        });
 
         add(topBar(), BorderLayout.NORTH);
         add(center, BorderLayout.CENTER);
@@ -121,10 +133,8 @@ final class MainWindow extends JFrame {
             }
         });
         bind(grid, "ENTER", this::openSelected);
-        bind(grid, "CONTEXT_MENU", () -> {
-            Disc d = grid.getSelectedValue();
-            if (d != null) discMenu(d).show(grid, 40, 40);
-        });
+        bind(grid, "CONTEXT_MENU", this::optionsForSelected);
+        bind(grid, "M", this::optionsForSelected);
 
         JScrollPane scroll = new JScrollPane(grid);
         scroll.setBorder(null);
@@ -134,6 +144,90 @@ final class MainWindow extends JFrame {
 
         showDiscs(library.discs());
         rescan();
+    }
+
+    // ------------------------------------------------------------ TV mode
+
+    /** TV mode: the shelf covers the whole screen with no window frame. */
+    private void fillScreen(boolean on) {
+        setUndecorated(on);
+        if (on) {
+            setBounds(getGraphicsConfiguration().getBounds());
+        } else {
+            setSize(1300, 820);
+            setLocationRelativeTo(null);
+        }
+    }
+
+    private void switchTvMode(boolean on) {
+        Settings.setTvMode(on);
+        dispose();
+        fillScreen(on);
+        setVisible(true);
+        status.setText(on ? "TV mode: the shelf fills the screen. Larger tiles show after Disc Shelf restarts."
+                : "Window mode. Larger TV tiles go after Disc Shelf restarts.");
+    }
+
+    /** The options for the highlighted disc, opened with the remote's Menu button. */
+    private void optionsForSelected() {
+        Disc d = grid.getSelectedValue();
+        JPopupMenu m = d != null ? discMenu(d) : shelfMenu(new JPopupMenu());
+        int i = grid.getSelectedIndex();
+        java.awt.Rectangle r = i >= 0 ? grid.getCellBounds(i, i) : new java.awt.Rectangle(40, 40, 0, 0);
+        showSelected(m, grid, r.x + 30, r.y + 40);
+    }
+
+    /** Shows a pop-up list with its first entry highlighted, so the remote's arrows and OK work at once. */
+    static void showSelected(JPopupMenu m, Component on, int x, int y) {
+        m.show(on, x, y);
+        javax.swing.SwingUtilities.invokeLater(() -> {
+            for (Component c : m.getComponents()) {
+                if (c instanceof JMenuItem && c.isEnabled()) {
+                    javax.swing.MenuSelectionManager.defaultManager().setSelectedPath(
+                            new javax.swing.MenuElement[]{m, (JMenuItem) c});
+                    return;
+                }
+            }
+        });
+    }
+
+    /** Things the mouse reaches through the buttons at the top, for the remote. */
+    private JPopupMenu shelfMenu(JPopupMenu m) {
+        JMenuItem rescan = new JMenuItem("Rescan for discs");
+        rescan.addActionListener(e -> rescan());
+        JMenuItem sources = new JMenuItem("Sources…");
+        sources.addActionListener(e -> editSources());
+        JMenuItem settings = new JMenuItem("Settings…");
+        settings.addActionListener(e -> settings());
+        String addr = Remote.address();
+        JMenuItem phone = new JMenuItem(Settings.phoneRemote() && addr != null
+                ? "Phone remote: open " + addr + " on your phone" : "Phone remote is off (Settings)");
+        phone.addActionListener(e -> showPhoneRemote());
+        JMenuItem tv = new JMenuItem(Settings.tvMode() ? "Show in a window" : "TV mode (full screen)");
+        tv.addActionListener(e -> switchTvMode(!Settings.tvMode()));
+        JMenuItem quit = new JMenuItem("Quit Disc Shelf");
+        quit.addActionListener(e -> System.exit(0));
+        m.add(rescan);
+        m.add(sources);
+        m.add(settings);
+        m.add(phone);
+        m.addSeparator();
+        m.add(tv);
+        m.add(quit);
+        return m;
+    }
+
+    private void showPhoneRemote() {
+        String addr = Remote.address();
+        JOptionPane.showMessageDialog(this, addr == null || !Settings.phoneRemote()
+                        ? "Turn on the phone remote in Settings, then restart Disc Shelf."
+                        : "<html><body style='width:380px'><p>On a phone or tablet on the same Wi-Fi, open the browser and go to</p>"
+                        + "<p style='font-size:20px;margin:10px 0'><b>" + addr + "</b></p>"
+                        + "<p>Add it to the home screen to open it like an app.</p><br>"
+                        + "<p style='color:gray'>If the page doesn't load, Windows Firewall may have blocked it: "
+                        + "allow Disc Shelf on private networks when Windows asks, or in Windows Security, "
+                        + "Firewall, Allow an app through firewall.</p></body></html>",
+                "Phone remote", JOptionPane.PLAIN_MESSAGE);
     }
 
     // ------------------------------------------------------------ layout
@@ -169,6 +263,12 @@ final class MainWindow extends JFrame {
         buttons.add(button("Rescan", this::rescan));
         buttons.add(button("Settings", this::settings));
         bar.add(buttons, BorderLayout.EAST);
+        if (Settings.tvMode()) {
+            JLabel hint = new JLabel("Arrows and OK to play   ·   Menu button for options");
+            hint.setForeground(Color.GRAY);
+            hint.setBorder(BorderFactory.createEmptyBorder(0, 24, 0, 0));
+            bar.add(hint, BorderLayout.CENTER);
+        }
         return bar;
     }
 
@@ -296,11 +396,17 @@ final class MainWindow extends JFrame {
             play(d, false);
             return;
         }
-        Object[] options = {"Resume from " + PlayerWindow.time(r.time), "Start from the beginning", "Cancel"};
-        int c = JOptionPane.showOptionDialog(this, d.title, "Play", JOptionPane.DEFAULT_OPTION,
-                JOptionPane.PLAIN_MESSAGE, null, options, options[0]);
-        if (c == 0) play(d, true);
-        else if (c == 1) play(d, false);
+        /* A short list rather than a dialog with buttons, so the remote's arrows and OK can answer it. */
+        JPopupMenu m = new JPopupMenu();
+        JMenuItem resume = new JMenuItem("Resume from " + PlayerWindow.time(r.time));
+        resume.addActionListener(e -> play(d, true));
+        JMenuItem fresh = new JMenuItem("Start from the beginning");
+        fresh.addActionListener(e -> play(d, false));
+        m.add(resume);
+        m.add(fresh);
+        int i = grid.getSelectedIndex();
+        java.awt.Rectangle b = grid.getCellBounds(i, i);
+        showSelected(m, grid, b.x + 30, b.y + b.height / 2);
     }
 
     private void play(Disc d, boolean resume) {
@@ -348,6 +454,10 @@ final class MainWindow extends JFrame {
         m.add(none);
         m.addSeparator();
         m.add(show);
+        if (Settings.tvMode()) {
+            m.addSeparator();
+            shelfMenu(m);
+        }
         return m;
     }
 
@@ -499,6 +609,11 @@ final class MainWindow extends JFrame {
         sound.setSelectedItem(Settings.sound());
         JCheckBox menus = new JCheckBox("Start discs on their own menu", Settings.menus());
         JCheckBox full = new JCheckBox("Play full screen", Settings.startFullScreen());
+        JCheckBox tv = new JCheckBox("TV mode: the shelf fills the screen, run with a remote", Settings.tvMode());
+        JCheckBox phone = new JCheckBox("Phone remote: control Disc Shelf from a phone's browser", Settings.phoneRemote());
+        boolean wasStartup = Settings.startWithWindows();
+        JCheckBox startup = new JCheckBox("Open Disc Shelf when Windows starts", wasStartup);
+        startup.setEnabled(Settings.exe() != null);
         JCheckBox covers = new JCheckBox("Find cover art online (Apple's iTunes film and TV catalogue)", Art.online());
         JTextField audio = new JTextField(Settings.audioLang(), 8);
         JTextField subs = new JTextField(Settings.subLang(), 8);
@@ -514,6 +629,9 @@ final class MainWindow extends JFrame {
         p.add(Box.createVerticalStrut(12));
         p.add(left(menus));
         p.add(left(full));
+        p.add(left(tv));
+        p.add(left(phone));
+        p.add(left(startup));
         p.add(left(covers));
         JLabel coverHint = new JLabel("A picture saved beside a disc, such as The Matrix.jpg next to The Matrix.iso, is used first.");
         coverHint.setForeground(Color.GRAY);
@@ -534,6 +652,12 @@ final class MainWindow extends JFrame {
         Settings.setSound((Settings.Sound) sound.getSelectedItem());
         Settings.setMenus(menus.isSelected());
         Settings.setStartFullScreen(full.isSelected());
+        if (phone.isSelected() != Settings.phoneRemote()) {
+            Settings.setPhoneRemote(phone.isSelected());
+            if (phone.isSelected()) Remote.start();
+        }
+        if (startup.isSelected() != wasStartup) Settings.setStartWithWindows(startup.isSelected());
+        if (tv.isSelected() != Settings.tvMode()) switchTvMode(tv.isSelected());
         if (covers.isSelected() != Art.online()) {
             Art.setOnline(covers.isSelected());
             art.retryMissing();
@@ -594,11 +718,11 @@ final class MainWindow extends JFrame {
             }
             if (selected) {
                 g.setColor(ACCENT);
-                g.setStroke(new java.awt.BasicStroke(3f));
+                g.setStroke(new java.awt.BasicStroke(Settings.tvMode() ? 5f : 3f));
                 g.drawRoundRect(x + 1, y + 1, w - 2, h - 2, 16, 16);
             }
 
-            g.setFont(getFont().deriveFont(Font.BOLD, 11f));
+            g.setFont(getFont().deriveFont(Font.BOLD, 11f * TILE_W / 186f));
             String badge = disc.badge();
             int bw = g.getFontMetrics().stringWidth(badge) + 12;
             g.setColor(new Color(0, 0, 0, 150));
@@ -607,12 +731,12 @@ final class MainWindow extends JFrame {
             g.drawString(badge, x + 18, y + 26);
 
             if (cover == null) {
-                g.setFont(getFont().deriveFont(Font.BOLD, 16f));
+                g.setFont(getFont().deriveFont(Font.BOLD, 16f * TILE_W / 186f));
                 g.setColor(Color.WHITE);
                 drawWrapped(g, disc.title, x + 14, y + 62, w - 28, 5);
             }
 
-            g.setFont(getFont().deriveFont(12f));
+            g.setFont(getFont().deriveFont(12f * TILE_W / 186f));
             g.setColor(new Color(200, 200, 200));
             g.drawString(Disc.size(disc.size), x + 14, y + h - 14);
 
@@ -620,7 +744,7 @@ final class MainWindow extends JFrame {
             if (r != null) {
                 g.setColor(ACCENT);
                 g.fillRoundRect(x + w - 70, y + h - 24, 56, 8, 4, 4);
-                g.setFont(getFont().deriveFont(11f));
+                g.setFont(getFont().deriveFont(11f * TILE_W / 186f));
                 g.drawString("Resume", x + w - 70, y + h - 30);
             }
             g.dispose();
