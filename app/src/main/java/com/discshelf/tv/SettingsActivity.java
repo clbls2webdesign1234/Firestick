@@ -96,6 +96,8 @@ public class SettingsActivity extends Activity {
         items.add(new Item(CHOICE, Prefs.SKIP_KEYS, "Rewind and fast-forward buttons", null,
                 new String[]{"chapter", "seek"},
                 new String[]{"Skip to the previous or next chapter", "Jump back 10 s or forward 30 s"}, "chapter"));
+        items.add(new Item(TOGGLE, Prefs.SKIP_INTROS, "Skip the intros and go straight to the menu",
+                "Jumps past warnings and trailers when a disc starts at its menu", null, null, "true"));
         items.add(new Item(TOGGLE, Prefs.MATCH_RATE, "Match the TV's refresh rate to the disc",
                 "Smoother motion; the screen blanks for a moment when a disc starts", null, null, "true"));
         items.add(new Item(CHOICE, Prefs.DECODE, "DVD picture processing",

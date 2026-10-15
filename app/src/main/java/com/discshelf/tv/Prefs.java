@@ -19,6 +19,7 @@ final class Prefs {
     static final String MATCH_RATE = "match_rate";
     static final String DECODE = "decode";
     static final String START_AT = "start_at";
+    static final String SKIP_INTROS = "skip_intros";
     static final String SCAN_USB = "scan_usb";
     static final String NET_CACHE = "net_cache";
     static final String SCALE = "scale";
@@ -61,6 +62,10 @@ final class Prefs {
 
     static boolean softwareDecode(Context c) {
         return "sw".equals(get(c).getString(DECODE, "hw"));
+    }
+
+    static boolean skipIntros(Context c) {
+        return get(c).getBoolean(SKIP_INTROS, true);
     }
 
     static boolean startAtMenu(Context c, boolean bluray) {

@@ -97,6 +97,8 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
     private boolean skipReadAhead, skipRateMatch;
     private int voutCount;
     private boolean softwareActive;
+    /** How many times this playback has tried to jump past the intros; -1 once it's done. */
+    private int introSkips;
     private boolean inMenu;
     private boolean popupNav;
     private boolean kindKnown;
@@ -302,6 +304,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         titles = null;
         menuIdx = -1;
         voutCount = 0;
+        introSkips = 0;
         inMenu = false;
         popupNav = false;
         resumeTries = 0;
@@ -386,6 +389,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
     private void stopPlayback() {
         generation++;
         handler.removeCallbacks(resumeStep);
+        handler.removeCallbacks(skipIntros);
         handler.removeCallbacks(matchRate);
         handler.removeCallbacks(applySeek);
         if (player != null) {
@@ -422,6 +426,9 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
                 if (pendingResume != null) {
                     handler.removeCallbacks(resumeStep);
                     handler.postDelayed(resumeStep, 1500);
+                } else if (menusActive && introSkips == 0 && Prefs.skipIntros(this)) {
+                    handler.removeCallbacks(skipIntros);
+                    handler.postDelayed(skipIntros, 1000);
                 }
                 break;
             case MediaPlayer.Event.Paused:
@@ -580,6 +587,32 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         }
         player.setTitle(menuIdx);
     }
+
+    /**
+     * Jumps from the warnings and trailers a disc plays first to its main menu. A disc can refuse
+     * the jump while a warning is showing, so it is tried a few times until the menu is up.
+     */
+    private final Runnable skipIntros = new Runnable() {
+        @Override
+        public void run() {
+            if (player == null || introSkips < 0) return;
+            refreshTitles();
+            updateNav();
+            if (inMenu) {
+                introSkips = -1;
+                return;
+            }
+            if (menuIdx >= 0) {
+                if (introSkips == 0) showHint("Skipping the intros…", 2500);
+                player.setTitle(menuIdx);
+            }
+            if (++introSkips < 6) {
+                handler.postDelayed(this, 2000);
+            } else {
+                introSkips = -1;
+            }
+        }
+    };
 
     // ------------------------------------------------------------------ resume
 
