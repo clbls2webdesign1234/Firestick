@@ -580,6 +580,28 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         }
     }
 
+    /**
+     * Whether the remote's arrows and Select should go to the disc. Besides the disc's own menu
+     * title, a Blu-ray often draws its menu over a short looping clip, and warnings and trailers
+     * are short too, so on a disc started with menus every title under 10 minutes counts. The film
+     * itself is longer, and there the arrows seek as usual.
+     */
+    private boolean menuKeys() {
+        if (inMenu || popupNav) return true;
+        if (!menusActive || titles == null || player == null) return false;
+        int cur = player.getTitle();
+        if (cur < 0 || cur >= titles.length || titles[cur] == null) return false;
+        long d = titles[cur].duration;
+        return d > 0 && d < 10 * 60 * 1000;
+    }
+
+    private void nav(int direction) {
+        if (player == null) return;
+        /* A paused disc doesn't act on menu buttons, so a stray pause would make them seem dead. */
+        if (!player.isPlaying()) player.play();
+        player.navigate(direction);
+    }
+
     private void goDiscMenu() {
         if (player == null || menuIdx < 0) {
             showHint("This disc has no menu to go to", 2500);
@@ -819,25 +841,25 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
             return super.dispatchKeyEvent(e);
         }
 
-        if (inMenu || popupNav) {
+        if (menuKeys()) {
             switch (code) {
                 case KeyEvent.KEYCODE_DPAD_UP:
-                    if (down) player.navigate(MediaPlayer.Navigate.Up);
+                    if (down) nav(MediaPlayer.Navigate.Up);
                     return true;
                 case KeyEvent.KEYCODE_DPAD_DOWN:
-                    if (down) player.navigate(MediaPlayer.Navigate.Down);
+                    if (down) nav(MediaPlayer.Navigate.Down);
                     return true;
                 case KeyEvent.KEYCODE_DPAD_LEFT:
-                    if (down) player.navigate(MediaPlayer.Navigate.Left);
+                    if (down) nav(MediaPlayer.Navigate.Left);
                     return true;
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
-                    if (down) player.navigate(MediaPlayer.Navigate.Right);
+                    if (down) nav(MediaPlayer.Navigate.Right);
                     return true;
                 case KeyEvent.KEYCODE_DPAD_CENTER:
                 case KeyEvent.KEYCODE_ENTER:
                 case KeyEvent.KEYCODE_NUMPAD_ENTER:
                 case KeyEvent.KEYCODE_BUTTON_A:
-                    if (first) player.navigate(MediaPlayer.Navigate.Activate);
+                    if (first) nav(MediaPlayer.Navigate.Activate);
                     return true;
                 case KeyEvent.KEYCODE_BACK:
                     if (up) {
