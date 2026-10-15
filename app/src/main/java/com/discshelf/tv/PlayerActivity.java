@@ -357,6 +357,15 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
             media = new Media(vlc, Uri.parse(url));
         }
         media.addOption(":network-caching=" + Prefs.netCache(this));
+        if (!disc.folder && !disc.isLocalPath() && !isBluray) {
+            /*
+             * The read-ahead above tells the engine the share can't seek quickly, and the DVD
+             * reader then refuses to look inside the image, so the disc played as a plain video
+             * file: the intros ran, but its menus never appeared. Naming the DVD reader first
+             * skips that check; a Blu-ray image falls through to the Blu-ray reader as before.
+             */
+            media.addOption(":demux=dvdnav,any");
+        }
         media.setHWDecoderEnabled(!software, false);
         if (!menus) {
             media.addOption(":no-dvdnav-menu");
