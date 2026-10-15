@@ -93,6 +93,9 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
     private boolean ended;
     private MediaPlayer.Title[] titles;
     private int menuIdx = -1;
+    /** Set from Playback details to rule things out one at a time when a disc misbehaves. */
+    private boolean skipReadAhead, skipRateMatch;
+    private int voutCount;
     private boolean inMenu;
     private boolean popupNav;
     private boolean kindKnown;
@@ -297,6 +300,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         ended = false;
         titles = null;
         menuIdx = -1;
+        voutCount = 0;
         inMenu = false;
         popupNav = false;
         resumeTries = 0;
@@ -309,7 +313,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         ArrayList<String> options = new ArrayList<>();
         if (!Prefs.audioLang(this).isEmpty()) options.add("--audio-language=" + Prefs.audioLang(this));
         if (!Prefs.subLang(this).isEmpty()) options.add("--sub-language=" + Prefs.subLang(this));
-        if (!disc.isLocalPath()) {
+        if (!disc.isLocalPath() && !skipReadAhead) {
             /*
              * Read ahead from the share in large pieces. The engine's default asks for 16 KB at a
              * time, and over Wi-Fi each request waits a round trip, so a DVD could not keep up even
@@ -357,7 +361,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
             media = new Media(vlc, Uri.parse(url));
         }
         media.addOption(":network-caching=" + Prefs.netCache(this));
-        if (!disc.folder && !disc.isLocalPath() && !isBluray) {
+        if (!disc.folder && !disc.isLocalPath() && !isBluray && !skipReadAhead) {
             /*
              * The read-ahead above tells the engine the share can't seek quickly, and the DVD
              * reader then refuses to look inside the image, so the disc played as a plain video
@@ -423,6 +427,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
                 updateSession();
                 break;
             case MediaPlayer.Event.Vout:
+                voutCount = event.getVoutCount();
                 if (event.getVoutCount() > 0) {
                     hideLoading();
                     handler.removeCallbacks(matchRate);
@@ -1163,6 +1168,12 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
                 push(scalePage());
             }
         });
+        p.link("Playback details", null, new Runnable() {
+            @Override
+            public void run() {
+                push(detailsPage());
+            }
+        });
         p.link("Stop and return to the shelf", null, new Runnable() {
             @Override
             public void run() {
@@ -1170,6 +1181,59 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
             }
         });
         return p;
+    }
+
+    /** What the engine made of the disc, for a photo when something goes wrong. */
+    private Page detailsPage() {
+        Page p = new Page("Playback details");
+        String version = "?";
+        try {
+            version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Throwable ignored) {
+        }
+        p.note("Disc Shelf " + version + (isBluray ? ", Blu-ray" : ", DVD") + (disc.isLocalPath() ? ", local" : ", network"));
+        int count = titles == null ? 0 : titles.length;
+        p.note("Titles: " + count + ", now " + player.getTitle()
+                + ", menu " + (menuIdx >= 0 ? "title " + menuIdx : "not found")
+                + (inMenu ? ", in menu" : ""));
+        p.note(count > 0 && menuIdx >= 0 ? "Opened as a disc, with menus"
+                : count > 0 ? "Opened as a disc, no menu listed" : "Opened as a plain video file");
+        p.note("Chapters: " + chapterCount() + ", picture outputs: " + voutCount
+                + ", playing: " + player.isPlaying());
+        for (IMedia.Track t : freshTracks()) {
+            if (!(t instanceof IMedia.VideoTrack)) continue;
+            IMedia.VideoTrack v = (IMedia.VideoTrack) t;
+            String fps = v.frameRateDen > 0 ? String.format(Locale.US, "%.2f", v.frameRateNum / (float) v.frameRateDen) : "?";
+            p.note("Video: " + v.width + "×" + v.height + ", " + fps + " fps, " + t.codec);
+        }
+        p.note("Read-ahead " + (skipReadAhead ? "off" : "on") + ", refresh-rate change "
+                + (skipRateMatch || !Prefs.matchRate(this) ? "off" : "on")
+                + ", decoding " + (Prefs.softwareDecode(this) ? "software" : "hardware")
+                + ", buffer " + Prefs.netCache(this) / 1000.0 + " s");
+        if (!disc.isLocalPath()) {
+            p.link(skipReadAhead ? "Restart with read-ahead" : "Restart without read-ahead", null, new Runnable() {
+                @Override
+                public void run() {
+                    skipReadAhead = !skipReadAhead;
+                    restartForTest();
+                }
+            });
+        }
+        p.link(skipRateMatch ? "Restart with refresh-rate change" : "Restart without refresh-rate change", null, new Runnable() {
+            @Override
+            public void run() {
+                skipRateMatch = !skipRateMatch;
+                restartForTest();
+            }
+        });
+        return p;
+    }
+
+    private void restartForTest() {
+        closePanel();
+        boolean menus = menusActive;
+        stopPlayback();
+        startPlayback(menus);
     }
 
     private Page audioPage() {
@@ -1568,7 +1632,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
     private final Runnable matchRate = new Runnable() {
         @Override
         public void run() {
-            if (player == null || !Prefs.matchRate(PlayerActivity.this)) return;
+            if (player == null || skipRateMatch || !Prefs.matchRate(PlayerActivity.this)) return;
             float fps = 0;
             int selected = player.getVideoTrack();
             for (IMedia.Track t : freshTracks()) {
