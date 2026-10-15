@@ -99,6 +99,10 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
     private boolean softwareActive;
     /** How many times this playback has tried to jump past the intros; -1 once it's done. */
     private int introSkips;
+    /** Recent key presses and player changes, shown under Playback details to find faults. */
+    private final java.util.ArrayDeque<String> trace = new java.util.ArrayDeque<>();
+    private long traceStart;
+    private int lastTitle = -2;
     private boolean inMenu;
     private boolean popupNav;
     private boolean kindKnown;
@@ -305,6 +309,10 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         menuIdx = -1;
         voutCount = 0;
         introSkips = 0;
+        trace.clear();
+        traceStart = SystemClock.elapsedRealtime();
+        lastTitle = -2;
+        trace("start, menus " + (menus ? "on" : "off") + ", " + (isBluray ? "Blu-ray" : "DVD"));
         inMenu = false;
         popupNav = false;
         resumeTries = 0;
@@ -316,6 +324,13 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         softwareActive = software;
 
         ArrayList<String> options = new ArrayList<>();
+        try {
+            vlcLog().delete();
+        } catch (Throwable ignored) {
+        }
+        options.add("--file-logging");
+        options.add("--logfile=" + vlcLog().getAbsolutePath());
+        options.add("--log-verbose=2");
         if (!Prefs.audioLang(this).isEmpty()) options.add("--audio-language=" + Prefs.audioLang(this));
         if (!Prefs.subLang(this).isEmpty()) options.add("--sub-language=" + Prefs.subLang(this));
         if (!disc.isLocalPath() && !skipReadAhead) {
@@ -417,6 +432,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
                 showLoading("Opening " + disc.title + "…");
                 break;
             case MediaPlayer.Event.Playing:
+                trace("playing");
                 started = true;
                 hideLoading();
                 refreshTitles();
@@ -432,6 +448,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
                 }
                 break;
             case MediaPlayer.Event.Paused:
+                trace("paused");
                 updatePlayIcon();
                 updateSession();
                 break;
@@ -453,6 +470,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
                 finish();
                 break;
             case MediaPlayer.Event.EncounteredError:
+                trace("error");
                 handler.post(new Runnable() {
                     @Override
                     public void run() {
@@ -510,6 +528,12 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         public void run() {
             if (player != null) {
                 updateNav();
+                int t = player.getTitle();
+                if (t != lastTitle) {
+                    lastTitle = t;
+                    long d = titles != null && t >= 0 && t < titles.length && titles[t] != null ? titles[t].duration : -1;
+                    trace("title " + t + (d >= 0 ? " (" + d / 1000 + " s)" : "") + (inMenu ? ", menu" : ""));
+                }
                 if (controlsVisible()) updateProgress();
                 long now = SystemClock.elapsedRealtime();
                 if (now - lastSave > 10000) {
@@ -586,6 +610,42 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
      * are short too, so on a disc started with menus every title under 10 minutes counts. The film
      * itself is longer, and there the arrows seek as usual.
      */
+    private void trace(String line) {
+        long t = (SystemClock.elapsedRealtime() - traceStart) / 1000;
+        trace.addLast(String.format(Locale.US, "%d:%02d %s", t / 60, t % 60, line));
+        while (trace.size() > 24) trace.removeFirst();
+    }
+
+    private java.io.File vlcLog() {
+        return new java.io.File(getCacheDir(), "player.log");
+    }
+
+    /** The engine's own warnings and errors from this playback, newest last. */
+    private List<String> vlcLogTail(int max) {
+        ArrayList<String> out = new ArrayList<>();
+        try {
+            java.io.RandomAccessFile f = new java.io.RandomAccessFile(vlcLog(), "r");
+            try {
+                long len = f.length();
+                long from = Math.max(0, len - 16384);
+                byte[] buf = new byte[(int) (len - from)];
+                f.seek(from);
+                f.readFully(buf);
+                String[] lines = new String(buf, "UTF-8").split("\n");
+                for (int i = lines.length - 1; i >= 0 && out.size() < max; i--) {
+                    String l = lines[i].trim();
+                    if (l.isEmpty()) continue;
+                    out.add(0, l.length() > 160 ? l.substring(0, 160) : l);
+                }
+            } finally {
+                f.close();
+            }
+        } catch (Throwable t) {
+            out.add("(no engine log: " + t.getMessage() + ")");
+        }
+        return out;
+    }
+
     private boolean menuKeys() {
         if (inMenu || popupNav) return true;
         if (!menusActive || titles == null || player == null) return false;
@@ -622,10 +682,13 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
             updateNav();
             if (inMenu) {
                 introSkips = -1;
+                trace("menu reached");
                 return;
             }
+            if (menuIdx < 0) trace("no menu title listed yet");
             if (menuIdx >= 0) {
                 if (introSkips == 0) showHint("Skipping the intros…", 2500);
+                trace("jump to menu, title " + menuIdx);
                 player.setTitle(menuIdx);
             }
             if (++introSkips < 6) {
@@ -784,6 +847,11 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         final boolean down = e.getAction() == KeyEvent.ACTION_DOWN;
         final boolean up = e.getAction() == KeyEvent.ACTION_UP;
         final boolean first = down && e.getRepeatCount() == 0;
+        if (first) {
+            trace("key " + KeyEvent.keyCodeToString(code).replace("KEYCODE_", "").toLowerCase(Locale.US)
+                    + (panelVisible() ? " (panel)" : controlsVisible() ? " (controls)" : menuKeys() ? " to disc" : " to player")
+                    + (player.isPlaying() ? "" : ", not playing"));
+        }
 
         switch (code) {
             case KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE:
@@ -1019,6 +1087,12 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         }
     }
 
+    private static final Runnable NOTHING = new Runnable() {
+        @Override
+        public void run() {
+        }
+    };
+
     private static final class Page {
         final String title;
         final List<Row> rows = new ArrayList<>();
@@ -1039,6 +1113,11 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
 
         void note(String text) {
             rows.add(new Row(text, null, false, false, null));
+        }
+
+        /** A line of text the remote can move onto, so a long page scrolls line by line. */
+        void line(String text) {
+            rows.add(new Row(text, null, false, false, NOTHING));
         }
     }
 
@@ -1248,25 +1327,39 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
             version = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
         } catch (Throwable ignored) {
         }
-        p.note("Disc Shelf " + version + (isBluray ? ", Blu-ray" : ", DVD") + (disc.isLocalPath() ? ", local" : ", network"));
+        p.line("Disc Shelf " + version + (isBluray ? ", Blu-ray" : ", DVD") + (disc.isLocalPath() ? ", local" : ", network"));
         int count = titles == null ? 0 : titles.length;
-        p.note("Titles: " + count + ", now " + player.getTitle()
+        p.line("Titles: " + count + ", now " + player.getTitle()
                 + ", menu " + (menuIdx >= 0 ? "title " + menuIdx : "not found")
                 + (inMenu ? ", in menu" : ""));
-        p.note(count > 0 && menuIdx >= 0 ? "Opened as a disc, with menus"
+        p.line(count > 0 && menuIdx >= 0 ? "Opened as a disc, with menus"
                 : count > 0 ? "Opened as a disc, no menu listed" : "Opened as a plain video file");
-        p.note("Chapters: " + chapterCount() + ", picture outputs: " + voutCount
+        p.line("Chapters: " + chapterCount() + ", picture outputs: " + voutCount
                 + ", playing: " + player.isPlaying());
         for (IMedia.Track t : freshTracks()) {
             if (!(t instanceof IMedia.VideoTrack)) continue;
             IMedia.VideoTrack v = (IMedia.VideoTrack) t;
             String fps = v.frameRateDen > 0 ? String.format(Locale.US, "%.2f", v.frameRateNum / (float) v.frameRateDen) : "?";
-            p.note("Video: " + v.width + "×" + v.height + ", " + fps + " fps, " + t.codec);
+            p.line("Video: " + v.width + "×" + v.height + ", " + fps + " fps, " + t.codec);
         }
-        p.note("Read-ahead " + (skipReadAhead ? "off" : "on") + ", refresh-rate change "
+        p.line("Read-ahead " + (skipReadAhead ? "off" : "on") + ", refresh-rate change "
                 + (skipRateMatch || !Prefs.matchRate(this) ? "off" : "on")
                 + ", decoding " + (softwareActive ? "software" : "hardware")
                 + ", buffer " + Prefs.netCache(this) / 1000.0 + " s");
+        p.line("Start at: " + menusActive + " menus, setting " + Prefs.get(this).getString(Prefs.START_AT, "menu")
+                + ", skip intros " + Prefs.skipIntros(this));
+        if (titles != null) {
+            StringBuilder sb = new StringBuilder("Title lengths:");
+            for (int i = 0; i < titles.length; i++) {
+                MediaPlayer.Title t = titles[i];
+                sb.append(' ').append(i).append('=').append(t == null ? "?" : t.isMenu() ? "menu" : (t.duration / 1000) + "s");
+            }
+            p.line(sb.toString());
+        }
+        p.line("— Recent —");
+        for (String line : trace) p.line(line);
+        p.line("— Engine —");
+        for (String line : vlcLogTail(14)) p.line(line);
         if (!disc.isLocalPath()) {
             p.link(skipReadAhead ? "Restart with read-ahead" : "Restart without read-ahead", null, new Runnable() {
                 @Override
