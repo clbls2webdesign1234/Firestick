@@ -96,6 +96,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
     /** Set from Playback details to rule things out one at a time when a disc misbehaves. */
     private boolean skipReadAhead, skipRateMatch;
     private int voutCount;
+    private boolean softwareActive;
     private boolean inMenu;
     private boolean popupNav;
     private boolean kindKnown;
@@ -309,6 +310,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
 
         boolean software = Prefs.softwareDecode(this) && !isBluray
                 && (disc.size <= 0 || disc.size < 10L * 1024 * 1024 * 1024);
+        softwareActive = software;
 
         ArrayList<String> options = new ArrayList<>();
         if (!Prefs.audioLang(this).isEmpty()) options.add("--audio-language=" + Prefs.audioLang(this));
@@ -1208,7 +1210,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         }
         p.note("Read-ahead " + (skipReadAhead ? "off" : "on") + ", refresh-rate change "
                 + (skipRateMatch || !Prefs.matchRate(this) ? "off" : "on")
-                + ", decoding " + (Prefs.softwareDecode(this) ? "software" : "hardware")
+                + ", decoding " + (softwareActive ? "software" : "hardware")
                 + ", buffer " + Prefs.netCache(this) / 1000.0 + " s");
         if (!disc.isLocalPath()) {
             p.link(skipReadAhead ? "Restart with read-ahead" : "Restart without read-ahead", null, new Runnable() {
@@ -1633,6 +1635,15 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         @Override
         public void run() {
             if (player == null || skipRateMatch || !Prefs.matchRate(PlayerActivity.this)) return;
+            if (inMenu || popupNav || !player.isPlaying()) {
+                /*
+                 * Changing the TV's mode makes it drop the picture, and a disc menu is drawn once
+                 * and then left alone, so it stayed black. Wait until the film itself is running.
+                 */
+                handler.removeCallbacks(this);
+                handler.postDelayed(this, 3000);
+                return;
+            }
             float fps = 0;
             int selected = player.getVideoTrack();
             for (IMedia.Track t : freshTracks()) {
