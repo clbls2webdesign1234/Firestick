@@ -89,8 +89,10 @@ public class SettingsActivity extends Activity {
                 LANG_CODES, subLabels, ""));
 
         items.add(new Item(CHOICE, Prefs.START_AT, "Discs start at", null,
-                new String[]{"menu", "feature"},
-                new String[]{"The disc's own menu", "The main title, skipping the menu"}, "menu"));
+                new String[]{"menu", "dvd", "feature"},
+                new String[]{"The disc's own menu",
+                        "The menu on DVDs, the main title on Blu-rays (smoother over Wi-Fi)",
+                        "The main title, skipping the menu"}, "menu"));
         items.add(new Item(CHOICE, Prefs.SKIP_KEYS, "Rewind and fast-forward buttons", null,
                 new String[]{"chapter", "seek"},
                 new String[]{"Skip to the previous or next chapter", "Jump back 10 s or forward 30 s"}, "chapter"));

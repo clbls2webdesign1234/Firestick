@@ -266,7 +266,7 @@ public class PlayerActivity extends Activity implements MediaPlayer.EventListene
         controls.setVisibility(View.GONE);
         closePanel();
         userSeeking = false;
-        startPlayback(Prefs.startAtMenu(this) && !retriedWithoutMenus);
+        startPlayback(Prefs.startAtMenu(this, isBluray) && !retriedWithoutMenus);
         handler.postDelayed(tick, TICK_MS);
     }
 

@@ -63,8 +63,9 @@ final class Prefs {
         return "sw".equals(get(c).getString(DECODE, "hw"));
     }
 
-    static boolean startAtMenu(Context c) {
-        return "menu".equals(get(c).getString(START_AT, "menu"));
+    static boolean startAtMenu(Context c, boolean bluray) {
+        String at = get(c).getString(START_AT, "menu");
+        return "menu".equals(at) || ("dvd".equals(at) && !bluray);
     }
 
     static boolean scanUsb(Context c) {
